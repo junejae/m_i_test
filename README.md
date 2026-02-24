@@ -84,7 +84,7 @@ MAX_NUM_BATCHED_TOKENS_1=512
 MAX_NUM_BATCHED_TOKENS_2=512
 GPU_MEMORY_UTILIZATION_1=0.9
 GPU_MEMORY_UTILIZATION_2=0.9
-VLLM_EXTRA_ARGS_1=--swap-space 8
+VLLM_EXTRA_ARGS_1=--swap-space 8 --enforce-eager
 VLLM_EXTRA_ARGS_2=--swap-space 24 --cpu-offload-gb 12 --enforce-eager
 ```
 
