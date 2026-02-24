@@ -73,6 +73,27 @@ Copy output values into `.env` for `MIG_UUID_1`, `MIG_UUID_2`.
 docker compose up -d
 ```
 
+If you hit `Engine core initialization failed`, reduce memory pressure in `.env` first:
+
+```bash
+MAX_MODEL_LEN_1=1024
+MAX_MODEL_LEN_2=1024
+MAX_NUM_SEQS_1=1
+MAX_NUM_SEQS_2=1
+MAX_NUM_BATCHED_TOKENS_1=512
+MAX_NUM_BATCHED_TOKENS_2=512
+GPU_MEMORY_UTILIZATION_1=0.85
+GPU_MEMORY_UTILIZATION_2=0.85
+VLLM_EXTRA_ARGS_1=--swap-space 16 --cpu-offload-gb 10
+VLLM_EXTRA_ARGS_2=--swap-space 16 --cpu-offload-gb 8
+```
+
+Then recreate:
+
+```bash
+docker compose up -d --force-recreate
+```
+
 Endpoints:
 - `http://localhost:${PORT_1:-8101}/v1`
 - `http://localhost:${PORT_2:-8102}/v1`
