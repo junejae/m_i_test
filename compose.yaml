@@ -1,9 +1,56 @@
+name: mig-inference
+
+x-vllm-common: &vllm-common
+  image: vllm/vllm-openai:latest
+  ipc: host
+  runtime: nvidia
+  environment:
+    NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+  volumes:
+    - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+    interval: 20s
+    timeout: 5s
+    retries: 15
+
 services:
-  web:
-    image: nginx:1.27-alpine
-    container_name: m_i_test_web
+  # GPU 0 is already in use elsewhere and is intentionally not touched.
+  # Every service below is pinned to a MIG instance created on GPU 1.
+  mig-vllm-1:
+    <<: *vllm-common
+    container_name: mig-vllm-1
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${MIG_UUID_1}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command: >
+      vllm serve ${MODEL_1}
+      --host 0.0.0.0
+      --port 8000
+      --served-model-name ${SERVED_MODEL_NAME_1}
+      --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION_1}
+      --max-model-len ${MAX_MODEL_LEN_1}
+      --tensor-parallel-size 1
     ports:
-      - "${WEB_PORT:-8080}:80"
-    volumes:
-      - ./app:/usr/share/nginx/html:ro
-    restart: unless-stopped
+      - "${PORT_1}:8000"
+
+  mig-vllm-2:
+    <<: *vllm-common
+    container_name: mig-vllm-2
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${MIG_UUID_2}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command: >
+      vllm serve ${MODEL_2}
+      --host 0.0.0.0
+      --port 8000
+      --served-model-name ${SERVED_MODEL_NAME_2}
+      --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION_2}
+      --max-model-len ${MAX_MODEL_LEN_2}
+      --tensor-parallel-size 1
+    ports:
+      - "${PORT_2}:8000"
