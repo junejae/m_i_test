@@ -83,7 +83,7 @@ MAX_NUM_SEQS_2=1
 MAX_NUM_BATCHED_TOKENS_1=512
 MAX_NUM_BATCHED_TOKENS_2=512
 GPU_MEMORY_UTILIZATION_1=0.85
-GPU_MEMORY_UTILIZATION_2=0.85
+GPU_MEMORY_UTILIZATION_2=0.9
 VLLM_EXTRA_ARGS_1=--swap-space 16 --cpu-offload-gb 10
 VLLM_EXTRA_ARGS_2=--swap-space 24 --cpu-offload-gb 12 --enforce-eager
 ```
@@ -100,7 +100,7 @@ For `Qwen/Qwen3-VL-8B-Instruct` specifically, this profile is safer on small MIG
 MAX_MODEL_LEN_2=768
 MAX_NUM_SEQS_2=1
 MAX_NUM_BATCHED_TOKENS_2=256
-GPU_MEMORY_UTILIZATION_2=0.78
+GPU_MEMORY_UTILIZATION_2=0.9
 VLLM_EXTRA_ARGS_2=--swap-space 24 --cpu-offload-gb 12 --enforce-eager
 MM_IMAGE_LIMIT_2=1
 ```
