@@ -27,8 +27,7 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
     command: >
-      serve
-      --model ${MODEL_1}
+      ${MODEL_1}
       --host 0.0.0.0
       --port 8000
       --served-model-name ${SERVED_MODEL_NAME_1}
@@ -49,8 +48,7 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
     command: >
-      serve
-      --model ${MODEL_2}
+      ${MODEL_2}
       --host 0.0.0.0
       --port 8000
       --served-model-name ${SERVED_MODEL_NAME_2}
