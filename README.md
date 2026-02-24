@@ -26,6 +26,12 @@ Optional MIG instance auto-create example:
 cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && MIG_TARGET_GPU_INDEX=1 MIG_CREATE_ARGS='19,19' ./scripts/bootstrap_gpu1_mig_stack.sh
 ```
 
+If MIG is already created and `nvidia-smi` reports client-in-use errors during prepare, skip prepare and reuse existing MIG layout:
+
+```bash
+cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && MIG_TARGET_GPU_INDEX=1 RUN_MIG_PREPARE=0 ./scripts/bootstrap_gpu1_mig_stack.sh
+```
+
 ## 1) Prepare MIG on GPU 1 only
 
 ```bash

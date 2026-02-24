@@ -9,6 +9,7 @@ ENV_EXAMPLE_FILE="${PROJECT_ROOT}/.env.example"
 MIG_TARGET_GPU_INDEX="${MIG_TARGET_GPU_INDEX:-1}"
 MIG_CREATE_ARGS="${MIG_CREATE_ARGS:-}"
 SKIP_COMPOSE_UP="${SKIP_COMPOSE_UP:-0}"
+RUN_MIG_PREPARE="${RUN_MIG_PREPARE:-1}"
 
 if [[ ! -f "${ENV_EXAMPLE_FILE}" ]]; then
   echo ".env.example not found at ${ENV_EXAMPLE_FILE}" >&2
@@ -40,13 +41,32 @@ upsert_env() {
 }
 
 echo "[1/4] Preparing MIG on GPU ${MIG_TARGET_GPU_INDEX} only"
-if [[ -n "${MIG_CREATE_ARGS}" ]]; then
-  MIG_TARGET_GPU_INDEX="${MIG_TARGET_GPU_INDEX}" \
-  MIG_CREATE_ARGS="${MIG_CREATE_ARGS}" \
-  "${SCRIPT_DIR}/mig_prepare_gpu1.sh"
+if [[ "${RUN_MIG_PREPARE}" == "1" ]]; then
+  if [[ -n "${MIG_CREATE_ARGS}" ]]; then
+    set +e
+    MIG_TARGET_GPU_INDEX="${MIG_TARGET_GPU_INDEX}" \
+    MIG_CREATE_ARGS="${MIG_CREATE_ARGS}" \
+    "${SCRIPT_DIR}/mig_prepare_gpu1.sh"
+    PREPARE_RC=$?
+    set -e
+  else
+    set +e
+    MIG_TARGET_GPU_INDEX="${MIG_TARGET_GPU_INDEX}" \
+    "${SCRIPT_DIR}/mig_prepare_gpu1.sh"
+    PREPARE_RC=$?
+    set -e
+  fi
+
+  if [[ "${PREPARE_RC}" -ne 0 ]]; then
+    cat <<EOF
+MIG prepare step failed (exit=${PREPARE_RC}).
+This commonly happens when another client holds GPU ${MIG_TARGET_GPU_INDEX}.
+Continuing with existing MIG layout and trying UUID extraction.
+If MIG is already created, this is safe.
+EOF
+  fi
 else
-  MIG_TARGET_GPU_INDEX="${MIG_TARGET_GPU_INDEX}" \
-  "${SCRIPT_DIR}/mig_prepare_gpu1.sh"
+  echo "RUN_MIG_PREPARE=0, skipping MIG prepare and using existing MIG layout."
 fi
 
 echo "[2/4] Reading MIG UUIDs from GPU ${MIG_TARGET_GPU_INDEX}"
