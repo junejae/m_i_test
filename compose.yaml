@@ -31,8 +31,11 @@ services:
       --host 0.0.0.0
       --port 8000
       --served-model-name ${SERVED_MODEL_NAME_1}
+      --dtype ${DTYPE_1}
       --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION_1}
       --max-model-len ${MAX_MODEL_LEN_1}
+      --limit-mm-per-prompt.image 0
+      --limit-mm-per-prompt.video 0
       --tensor-parallel-size 1
     ports:
       - "${PORT_1}:8000"
@@ -49,8 +52,11 @@ services:
       --host 0.0.0.0
       --port 8000
       --served-model-name ${SERVED_MODEL_NAME_2}
+      --dtype ${DTYPE_2}
       --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION_2}
       --max-model-len ${MAX_MODEL_LEN_2}
+      --limit-mm-per-prompt.image ${MM_IMAGE_LIMIT_2}
+      --limit-mm-per-prompt.video ${MM_VIDEO_LIMIT_2}
       --tensor-parallel-size 1
     ports:
       - "${PORT_2}:8000"

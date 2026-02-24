@@ -5,6 +5,8 @@ H100 2-GPU host template for MIG-based multi-inference with Docker Compose.
 This template assumes:
 - `GPU 0`: already used by another workload (for example an existing full-GPU vLLM server)
 - `GPU 1`: partitioned with MIG, then each MIG slice runs one independent vLLM server container
+- `mig-vllm-1`: `google/gemma-3-27b-it` (text-focused config)
+- `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
 
 ## Prerequisites
 
@@ -51,8 +53,40 @@ curl -fsS http://localhost:${PORT_1:-8101}/health
 curl -fsS http://localhost:${PORT_2:-8102}/health
 ```
 
+## 4) Quick test requests
+
+Gemma 3 (text):
+
+```bash
+curl -sS http://localhost:${PORT_1:-8101}/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma3-27b-it",
+    "messages": [{"role": "user", "content": "한 줄로 자기소개 해줘."}]
+  }'
+```
+
+Qwen3-VL (image + text):
+
+```bash
+curl -sS http://localhost:${PORT_2:-8102}/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-vl-8b-instruct",
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "이미지에서 보이는 장면을 2문장으로 설명해줘."},
+        {"type": "image_url", "image_url": {"url": "https://picsum.photos/640/360"}}
+      ]
+    }]
+  }'
+```
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.
 - Each vLLM service uses `--tensor-parallel-size 1` for MIG-isolated inference.
+- `gemma-3-27b-it` 사용 전 Hugging Face에서 모델 사용 약관 동의가 필요할 수 있습니다.
+- `HUGGING_FACE_HUB_TOKEN`을 `.env`에 설정해야 private/gated 모델 pull이 가능합니다.
 - If MIG layout changes or host reboots, MIG UUIDs can change. Re-run UUID extraction and update `.env`.
