@@ -14,6 +14,18 @@ This template assumes:
 - Docker Engine + Compose plugin
 - NVIDIA Container Toolkit configured for Docker
 
+## One-command bootstrap (for TUI/no copy-paste)
+
+```bash
+cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && MIG_TARGET_GPU_INDEX=1 ./scripts/bootstrap_gpu1_mig_stack.sh
+```
+
+Optional MIG instance auto-create example:
+
+```bash
+cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && MIG_TARGET_GPU_INDEX=1 MIG_CREATE_ARGS='19,19' ./scripts/bootstrap_gpu1_mig_stack.sh
+```
+
 ## 1) Prepare MIG on GPU 1 only
 
 ```bash
