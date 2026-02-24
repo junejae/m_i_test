@@ -14,6 +14,12 @@ This template assumes:
 - Docker Engine + Compose plugin
 - NVIDIA Container Toolkit configured for Docker
 
+If Docker reports `unknown or invalid runtime name: nvidia`, run:
+
+```bash
+cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && sudo ./scripts/install_nvidia_container_toolkit.sh
+```
+
 ## One-command bootstrap (for TUI/no copy-paste)
 
 ```bash
