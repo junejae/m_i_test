@@ -31,8 +31,23 @@ apt-get install -y nvidia-container-toolkit
 echo "[4/7] Configure Docker runtime"
 nvidia-ctk runtime configure --runtime=docker
 
-echo "[5/7] Restart Docker"
-systemctl restart docker
+echo "[5/7] Reload Docker (no container restart expected)"
+if systemctl reload docker; then
+  echo "Docker daemon reloaded."
+else
+  echo "Docker reload failed." >&2
+  if [[ "${ALLOW_DOCKER_RESTART:-0}" == "1" ]]; then
+    echo "ALLOW_DOCKER_RESTART=1, restarting Docker daemon."
+    systemctl restart docker
+  else
+    cat <<'EOF' >&2
+Skipping daemon restart to avoid impacting running containers.
+If you accept restart risk, rerun with:
+  sudo ALLOW_DOCKER_RESTART=1 ./scripts/install_nvidia_container_toolkit.sh
+EOF
+    exit 1
+  fi
+fi
 
 echo "[6/7] Validate toolkit and runtime"
 nvidia-ctk --version

@@ -20,6 +20,13 @@ If Docker reports `unknown or invalid runtime name: nvidia`, run:
 cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && sudo ./scripts/install_nvidia_container_toolkit.sh
 ```
 
+This installer uses `systemctl reload docker` by default (to avoid restarting running containers).
+If reload fails and you explicitly allow restart:
+
+```bash
+cd /Users/junejae/workspace/m_i_test && sudo ALLOW_DOCKER_RESTART=1 ./scripts/install_nvidia_container_toolkit.sh
+```
+
 ## One-command bootstrap (for TUI/no copy-paste)
 
 ```bash
