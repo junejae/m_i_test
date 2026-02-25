@@ -46,6 +46,20 @@ If MIG is already created and `nvidia-smi` reports client-in-use errors during p
 cd /Users/junejae/workspace/m_i_test && chmod +x scripts/*.sh && MIG_TARGET_GPU_INDEX=1 RUN_MIG_PREPARE=0 ./scripts/bootstrap_gpu1_mig_stack.sh
 ```
 
+## Repartition GPU1 to 7x MIG slices
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/*.sh
+MIG_TARGET_GPU_INDEX=1 MIG_ONE_G_PROFILE_ID=19 ./scripts/mig_repartition_gpu1_to_7x1g.sh
+```
+
+Then run:
+
+```bash
+MIG_TARGET_GPU_INDEX=1 RUN_MIG_PREPARE=0 ./scripts/bootstrap_gpu1_mig_stack.sh
+```
+
 ## 1) Prepare MIG on GPU 1 only
 
 ```bash
