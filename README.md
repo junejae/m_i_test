@@ -123,7 +123,6 @@ MM_IMAGE_LIMIT_2=1
 For `dragonkue/BGE-m3-ko` specifically, this profile is a good starting point:
 
 ```bash
-TASK_3=embed
 MAX_MODEL_LEN_3=512
 MAX_NUM_SEQS_3=4
 MAX_NUM_BATCHED_TOKENS_3=256
