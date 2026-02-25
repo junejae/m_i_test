@@ -9,7 +9,7 @@ This template assumes:
 - `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
-- `mig-asr-5`: `openai/whisper-large-v3` (ASR-focused config, non-vLLM)
+- `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 
 ## Prerequisites
 
@@ -142,7 +142,7 @@ GPU_MEMORY_UTILIZATION_4=0.9
 VLLM_EXTRA_ARGS_4=--swap-space 8
 ```
 
-For `openai/whisper-large-v3` specifically, this ASR profile is a good starting point:
+For `large-v3` (faster-whisper) specifically, this ASR profile is a good starting point:
 
 ```bash
 ASR_DEVICE_5=cuda
@@ -220,7 +220,7 @@ whisper-large-v3 (transcription):
 ```bash
 curl -sS http://localhost:${PORT_5:-8105}/v1/audio/transcriptions \
   -F "file=@/absolute/path/sample.wav" \
-  -F "model=openai/whisper-large-v3" \
+  -F "model=large-v3" \
   -F "language=ko"
 ```
 

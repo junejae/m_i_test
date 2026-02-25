@@ -7,7 +7,7 @@ from faster_whisper import WhisperModel
 
 app = FastAPI(title="ASR Server", version="1.0.0")
 
-MODEL_ID = os.getenv("ASR_MODEL_ID", "openai/whisper-large-v3")
+MODEL_ID = os.getenv("ASR_MODEL_ID", "large-v3")
 DEVICE = os.getenv("ASR_DEVICE", "cuda")
 COMPUTE_TYPE = os.getenv("ASR_COMPUTE_TYPE", "float16")
 DEFAULT_LANGUAGE = os.getenv("ASR_LANGUAGE", "ko")
