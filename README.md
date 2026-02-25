@@ -262,6 +262,8 @@ Slot 6 uses `vllm/vllm-omni:v0.14.0` (not `vllm-openai`). If slot 6 image change
 docker compose up -d --force-recreate mig-vllm-6
 ```
 
+If slot 6 fails with `exec: \"Qwen/...\": no such file or directory`, it means the command was not launched via `vllm serve`. Pull latest `main` and recreate slot 6.
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.
