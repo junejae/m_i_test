@@ -9,7 +9,7 @@ This template assumes:
 - `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
-- `mig-vllm-5`: `openai/whisper-large-v3` (ASR-focused config)
+- `mig-asr-5`: `openai/whisper-large-v3` (ASR-focused config, non-vLLM)
 
 ## Prerequisites
 
@@ -142,14 +142,13 @@ GPU_MEMORY_UTILIZATION_4=0.9
 VLLM_EXTRA_ARGS_4=--swap-space 8
 ```
 
-For `openai/whisper-large-v3` specifically, this profile is a good starting point:
+For `openai/whisper-large-v3` specifically, this ASR profile is a good starting point:
 
 ```bash
-MAX_MODEL_LEN_5=2048
-MAX_NUM_SEQS_5=1
-MAX_NUM_BATCHED_TOKENS_5=2048
-GPU_MEMORY_UTILIZATION_5=0.9
-VLLM_EXTRA_ARGS_5=--swap-space 8
+ASR_DEVICE_5=cuda
+ASR_COMPUTE_TYPE_5=float16
+ASR_BEAM_SIZE_5=1
+ASR_LANGUAGE_5=ko
 ```
 
 Endpoints:
@@ -216,16 +215,19 @@ ko-reranker (candidate scoring/compat check):
 curl -sS http://localhost:${PORT_4:-8104}/v1/models
 ```
 
-whisper-large-v3 (model load check):
+whisper-large-v3 (transcription):
 
 ```bash
-curl -sS http://localhost:${PORT_5:-8105}/v1/models
+curl -sS http://localhost:${PORT_5:-8105}/v1/audio/transcriptions \
+  -F "file=@/absolute/path/sample.wav" \
+  -F "model=openai/whisper-large-v3" \
+  -F "language=ko"
 ```
 
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.
-- Each vLLM service uses `--tensor-parallel-size 1` for MIG-isolated inference.
+- `mig-vllm-1` to `mig-vllm-4` use `--tensor-parallel-size 1` for MIG-isolated inference.
 - `gemma-3-4b-it` 사용 전 Hugging Face에서 모델 사용 약관 동의가 필요할 수 있습니다.
 - `HUGGING_FACE_HUB_TOKEN`을 `.env`에 설정해야 private/gated 모델 pull이 가능합니다.
 - If MIG layout changes or host reboots, MIG UUIDs can change. Re-run UUID extraction and update `.env`.
