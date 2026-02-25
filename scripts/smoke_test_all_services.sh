@@ -187,12 +187,65 @@ fi
 
 # TTS endpoint: expect audio bytes on success.
 TTS_REQ="${OUT_DIR}/requests/slot6-tts.json"
-printf "%s\n" "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"테스트 음성입니다.\",\"response_format\":\"wav\"}" > "${TTS_REQ}"
+python3 - "${MODEL_6_NAME}" "${TTS_REQ}" <<'PY'
+import base64
+import io
+import json
+import struct
+import sys
+import wave
+
+model = sys.argv[1]
+out_path = sys.argv[2]
+
+payload = {
+    "model": model,
+    "input": "테스트 음성입니다.",
+    "response_format": "wav",
+}
+
+if "Base" in model:
+    # Base variant expects voice cloning inputs.
+    wav_buf = io.BytesIO()
+    with wave.open(wav_buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        frames = b"".join(struct.pack("<h", 0) for _ in range(16000))
+        w.writeframes(frames)
+    b64_wav = base64.b64encode(wav_buf.getvalue()).decode("ascii")
+    payload.update(
+        {
+            "task_type": "Base",
+            "ref_audio": f"data:audio/wav;base64,{b64_wav}",
+            "ref_text": "테스트 음성 참조 문장입니다.",
+        }
+    )
+elif "VoiceDesign" in model:
+    payload.update(
+        {
+            "task_type": "VoiceDesign",
+            "instructions": "맑고 차분한 한국어 여성 목소리",
+            "language": "Korean",
+        }
+    )
+else:
+    payload.update(
+        {
+            "task_type": "CustomVoice",
+            "voice": "sohee",
+            "language": "Korean",
+        }
+    )
+
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(payload, f, ensure_ascii=False)
+PY
 TTS_OUT="${OUT_DIR}/responses/slot6-tts.bin"
 TTS_HDR="${OUT_DIR}/headers/slot6-tts.hdr"
 TTS_CODE="$(curl -sS -o "${TTS_OUT}" -D "${TTS_HDR}" -w "%{http_code}" \
   -H "Content-Type: application/json" \
-  -d "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"테스트 음성입니다.\",\"response_format\":\"wav\"}" \
+  -d @"${TTS_REQ}" \
   "http://127.0.0.1:${PORT_6}/v1/audio/speech" || true)"
 if [[ "${TTS_CODE}" == "200" ]]; then
   if [[ -s "${TTS_OUT}" ]]; then

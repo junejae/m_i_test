@@ -278,7 +278,10 @@ This script validates:
 - slot3 embeddings
 - slot4 rerank (with `/v1/models` fallback)
 - slot5 ASR transcription (auto-generated 1s WAV)
-- slot6 TTS (`/v1/audio/speech`, default speaker path without `voice` override)
+- slot6 TTS (`/v1/audio/speech`, model-type aware payload)
+: `...-Base` model -> `task_type=Base` + `ref_audio/ref_text`
+: `...-CustomVoice` model -> `task_type=CustomVoice`
+: `...-VoiceDesign` model -> `task_type=VoiceDesign`
 - and strict runtime log scan per container (default ON)
 
 It also saves per-server artifacts under `logs/smoke-test-<timestamp>/`:
