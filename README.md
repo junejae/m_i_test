@@ -278,7 +278,7 @@ This script validates:
 - slot3 embeddings
 - slot4 rerank (with `/v1/models` fallback)
 - slot5 ASR transcription (auto-generated 1s WAV)
-- slot6 TTS (`/v1/audio/speech`)
+- slot6 TTS (`/v1/audio/speech`, default speaker path without `voice` override)
 - and strict runtime log scan per container (default ON)
 
 It also saves per-server artifacts under `logs/smoke-test-<timestamp>/`:

@@ -187,12 +187,12 @@ fi
 
 # TTS endpoint: expect audio bytes on success.
 TTS_REQ="${OUT_DIR}/requests/slot6-tts.json"
-printf "%s\n" "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"안녕하세요. 테스트 음성입니다.\",\"voice\":\"alloy\",\"response_format\":\"wav\"}" > "${TTS_REQ}"
+printf "%s\n" "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"테스트 음성입니다.\",\"response_format\":\"wav\"}" > "${TTS_REQ}"
 TTS_OUT="${OUT_DIR}/responses/slot6-tts.bin"
 TTS_HDR="${OUT_DIR}/headers/slot6-tts.hdr"
 TTS_CODE="$(curl -sS -o "${TTS_OUT}" -D "${TTS_HDR}" -w "%{http_code}" \
   -H "Content-Type: application/json" \
-  -d "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"안녕하세요. 테스트 음성입니다.\",\"voice\":\"alloy\",\"response_format\":\"wav\"}" \
+  -d "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"테스트 음성입니다.\",\"response_format\":\"wav\"}" \
   "http://127.0.0.1:${PORT_6}/v1/audio/speech" || true)"
 if [[ "${TTS_CODE}" == "200" ]]; then
   if [[ -s "${TTS_OUT}" ]]; then
