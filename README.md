@@ -9,6 +9,7 @@ This template assumes:
 - `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
+- `mig-vllm-5`: `openai/whisper-large-v3` (ASR-focused config)
 
 ## Prerequisites
 
@@ -81,7 +82,7 @@ MIG_TARGET_GPU_INDEX=1 MIG_CREATE_ARGS='19,19' ./scripts/mig_prepare_gpu1.sh
 MIG_TARGET_GPU_INDEX=1 ./scripts/print_mig_uuid_env.sh
 ```
 
-Copy output values into `.env` for `MIG_UUID_1`, `MIG_UUID_2`, `MIG_UUID_3`, `MIG_UUID_4`.
+Copy output values into `.env` for `MIG_UUID_1` ~ `MIG_UUID_5`.
 
 ## 3) Start inference services
 
@@ -141,11 +142,22 @@ GPU_MEMORY_UTILIZATION_4=0.9
 VLLM_EXTRA_ARGS_4=--swap-space 8
 ```
 
+For `openai/whisper-large-v3` specifically, this profile is a good starting point:
+
+```bash
+MAX_MODEL_LEN_5=256
+MAX_NUM_SEQS_5=1
+MAX_NUM_BATCHED_TOKENS_5=256
+GPU_MEMORY_UTILIZATION_5=0.9
+VLLM_EXTRA_ARGS_5=--swap-space 8
+```
+
 Endpoints:
 - `http://localhost:${PORT_1:-8101}/v1`
 - `http://localhost:${PORT_2:-8102}/v1`
 - `http://localhost:${PORT_3:-8103}/v1`
 - `http://localhost:${PORT_4:-8104}/v1`
+- `http://localhost:${PORT_5:-8105}/v1`
 
 Health checks:
 
@@ -154,6 +166,7 @@ curl -fsS http://localhost:${PORT_1:-8101}/health
 curl -fsS http://localhost:${PORT_2:-8102}/health
 curl -fsS http://localhost:${PORT_3:-8103}/health
 curl -fsS http://localhost:${PORT_4:-8104}/health
+curl -fsS http://localhost:${PORT_5:-8105}/health
 ```
 
 ## 4) Quick test requests
@@ -201,6 +214,12 @@ ko-reranker (candidate scoring/compat check):
 
 ```bash
 curl -sS http://localhost:${PORT_4:-8104}/v1/models
+```
+
+whisper-large-v3 (model load check):
+
+```bash
+curl -sS http://localhost:${PORT_5:-8105}/v1/models
 ```
 
 ## Notes

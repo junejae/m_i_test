@@ -110,3 +110,25 @@ services:
       ${VLLM_EXTRA_ARGS_4}
     ports:
       - "${PORT_4}:8000"
+
+  mig-vllm-5:
+    <<: *vllm-common
+    container_name: mig-vllm-5
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${MIG_UUID_5}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command: >
+      ${MODEL_5}
+      --host 0.0.0.0
+      --port 8000
+      --served-model-name ${SERVED_MODEL_NAME_5}
+      --dtype ${DTYPE_5}
+      --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION_5}
+      --max-model-len ${MAX_MODEL_LEN_5}
+      --max-num-seqs ${MAX_NUM_SEQS_5}
+      --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS_5}
+      --tensor-parallel-size 1
+      ${VLLM_EXTRA_ARGS_5}
+    ports:
+      - "${PORT_5}:8000"
