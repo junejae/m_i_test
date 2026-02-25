@@ -10,6 +10,7 @@ This template assumes:
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
+- `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (TTS-focused config)
 
 ## Prerequisites
 
@@ -82,7 +83,7 @@ MIG_TARGET_GPU_INDEX=1 MIG_CREATE_ARGS='19,19' ./scripts/mig_prepare_gpu1.sh
 MIG_TARGET_GPU_INDEX=1 ./scripts/print_mig_uuid_env.sh
 ```
 
-Copy output values into `.env` for `MIG_UUID_1` ~ `MIG_UUID_5`.
+Copy output values into `.env` for `MIG_UUID_1` ~ `MIG_UUID_6`.
 
 ## 3) Start inference services
 
@@ -151,12 +152,23 @@ ASR_BEAM_SIZE_5=1
 ASR_LANGUAGE_5=ko
 ```
 
+For `Qwen/Qwen3-TTS-12Hz-1.7B-Base` specifically, this profile is a good starting point:
+
+```bash
+MAX_MODEL_LEN_6=1024
+MAX_NUM_SEQS_6=1
+MAX_NUM_BATCHED_TOKENS_6=1024
+GPU_MEMORY_UTILIZATION_6=0.9
+VLLM_EXTRA_ARGS_6=--swap-space 8
+```
+
 Endpoints:
 - `http://localhost:${PORT_1:-8101}/v1`
 - `http://localhost:${PORT_2:-8102}/v1`
 - `http://localhost:${PORT_3:-8103}/v1`
 - `http://localhost:${PORT_4:-8104}/v1`
 - `http://localhost:${PORT_5:-8105}/v1`
+- `http://localhost:${PORT_6:-8106}/v1`
 
 Health checks:
 
@@ -166,6 +178,7 @@ curl -fsS http://localhost:${PORT_2:-8102}/health
 curl -fsS http://localhost:${PORT_3:-8103}/health
 curl -fsS http://localhost:${PORT_4:-8104}/health
 curl -fsS http://localhost:${PORT_5:-8105}/health
+curl -fsS http://localhost:${PORT_6:-8106}/health
 ```
 
 ## 4) Quick test requests
@@ -222,6 +235,12 @@ curl -sS http://localhost:${PORT_5:-8105}/v1/audio/transcriptions \
   -F "file=@/absolute/path/sample.wav" \
   -F "model=large-v3" \
   -F "language=ko"
+```
+
+Qwen3-TTS-12Hz-1.7B-Base (model load check):
+
+```bash
+curl -sS http://localhost:${PORT_6:-8106}/v1/models
 ```
 
 If ASR image dependencies changed, rebuild only slot 5:

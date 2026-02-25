@@ -135,3 +135,25 @@ services:
       retries: 15
     ports:
       - "${PORT_5}:8000"
+
+  mig-vllm-6:
+    <<: *vllm-common
+    container_name: mig-vllm-6
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${MIG_UUID_6}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    command: >
+      ${MODEL_6}
+      --host 0.0.0.0
+      --port 8000
+      --served-model-name ${SERVED_MODEL_NAME_6}
+      --dtype ${DTYPE_6}
+      --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION_6}
+      --max-model-len ${MAX_MODEL_LEN_6}
+      --max-num-seqs ${MAX_NUM_SEQS_6}
+      --max-num-batched-tokens ${MAX_NUM_BATCHED_TOKENS_6}
+      --tensor-parallel-size 1
+      ${VLLM_EXTRA_ARGS_6}
+    ports:
+      - "${PORT_6}:8000"
