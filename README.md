@@ -125,7 +125,7 @@ For `dragonkue/BGE-m3-ko` specifically, this profile is a good starting point:
 ```bash
 MAX_MODEL_LEN_3=512
 MAX_NUM_SEQS_3=4
-MAX_NUM_BATCHED_TOKENS_3=256
+MAX_NUM_BATCHED_TOKENS_3=512
 GPU_MEMORY_UTILIZATION_3=0.9
 VLLM_EXTRA_ARGS_3=--swap-space 8
 ```
