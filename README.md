@@ -249,6 +249,13 @@ If ASR image dependencies changed, rebuild only slot 5:
 docker compose up -d --build --force-recreate mig-asr-5
 ```
 
+If slot 6 logs contain `model type 'qwen3_tts'` / `Transformers does not recognize this architecture`, rebuild only slot 6 custom image:
+
+```bash
+docker compose build --no-cache mig-vllm-6
+docker compose up -d --force-recreate mig-vllm-6
+```
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.

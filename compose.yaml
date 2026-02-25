@@ -137,12 +137,24 @@ services:
       - "${PORT_5}:8000"
 
   mig-vllm-6:
-    <<: *vllm-common
+    # Qwen3-TTS requires newer transformers than the stock vLLM image bundle.
+    build:
+      context: ./tts-server
     container_name: mig-vllm-6
+    ipc: host
+    runtime: nvidia
     environment:
       NVIDIA_VISIBLE_DEVICES: ${MIG_UUID_6}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/root/.cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 15
     command: >
       ${MODEL_6}
       --host 0.0.0.0
