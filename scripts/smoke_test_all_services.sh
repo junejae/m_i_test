@@ -197,6 +197,7 @@ import wave
 
 model = sys.argv[1]
 out_path = sys.argv[2]
+model_l = model.lower()
 
 payload = {
     "model": model,
@@ -204,7 +205,7 @@ payload = {
     "response_format": "wav",
 }
 
-if "Base" in model:
+if "base" in model_l:
     # Base variant expects voice cloning inputs.
     wav_buf = io.BytesIO()
     with wave.open(wav_buf, "wb") as w:
@@ -221,7 +222,7 @@ if "Base" in model:
             "ref_text": "테스트 음성 참조 문장입니다.",
         }
     )
-elif "VoiceDesign" in model:
+elif "voicedesign" in model_l:
     payload.update(
         {
             "task_type": "VoiceDesign",
