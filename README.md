@@ -264,6 +264,22 @@ docker compose up -d --force-recreate mig-vllm-6
 
 If slot 6 fails with `exec: \"Qwen/...\": no such file or directory`, it means the command was not launched via `vllm serve`. Pull latest `main` and recreate slot 6.
 
+## 5) One-command smoke test (all slots)
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/smoke_test_all_services.sh
+./scripts/smoke_test_all_services.sh
+```
+
+This script validates:
+- slot1 chat completion
+- slot2 chat completion (VL server text-only request)
+- slot3 embeddings
+- slot4 rerank (with `/v1/models` fallback)
+- slot5 ASR transcription (auto-generated 1s WAV)
+- slot6 TTS (`/v1/audio/speech`)
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.
