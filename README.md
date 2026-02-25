@@ -162,6 +162,12 @@ GPU_MEMORY_UTILIZATION_6=0.9
 VLLM_EXTRA_ARGS_6=--swap-space 8
 ```
 
+`qwen3_tts` architecture warning appears frequently when remote-code loading is blocked. For slot 6 keep `--trust-remote-code` enabled:
+
+```bash
+VLLM_EXTRA_ARGS_6=--swap-space 8 --trust-remote-code
+```
+
 Endpoints:
 - `http://localhost:${PORT_1:-8101}/v1`
 - `http://localhost:${PORT_2:-8102}/v1`
