@@ -280,6 +280,13 @@ This script validates:
 - slot5 ASR transcription (auto-generated 1s WAV)
 - slot6 TTS (`/v1/audio/speech`)
 
+It also saves per-server artifacts under `logs/smoke-test-<timestamp>/`:
+- `summary.txt`
+- `requests/`
+- `responses/`
+- `headers/`
+- `docker/mig-*.log`
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.

@@ -3,6 +3,13 @@ set -u
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
+NOW="$(date +%Y%m%d-%H%M%S)"
+LOG_ROOT="${SMOKE_LOG_ROOT:-${ROOT_DIR}/logs}"
+OUT_DIR="${SMOKE_OUT_DIR:-${LOG_ROOT}/smoke-test-${NOW}}"
+mkdir -p "${OUT_DIR}"
+mkdir -p "${OUT_DIR}/requests" "${OUT_DIR}/responses" "${OUT_DIR}/headers" "${OUT_DIR}/docker"
+
+SUMMARY_FILE="${OUT_DIR}/summary.txt"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Missing ${ENV_FILE}. Copy .env.example first." >&2
@@ -36,11 +43,13 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 print_ok() {
   echo "[PASS] $1"
+  echo "[PASS] $1" >> "${SUMMARY_FILE}"
   PASS_COUNT=$((PASS_COUNT + 1))
 }
 
 print_fail() {
   echo "[FAIL] $1"
+  echo "[FAIL] $1" >> "${SUMMARY_FILE}"
   FAIL_COUNT=$((FAIL_COUNT + 1))
 }
 
@@ -78,10 +87,12 @@ run_json_test() {
   local url="$2"
   local payload="$3"
   local expect_key="$4"
-  local out_file="${TMP_DIR}/${name}.json"
+  local out_file="${OUT_DIR}/responses/${name}.json"
   local code
 
+  printf "%s\n" "${payload}" > "${OUT_DIR}/requests/${name}.json"
   code="$(curl -sS -o "${out_file}" -w "%{http_code}" \
+    -D "${OUT_DIR}/headers/${name}.hdr" \
     -H "Content-Type: application/json" \
     -d "${payload}" \
     "${url}" || true)"
@@ -101,6 +112,8 @@ run_json_test() {
 }
 
 echo "== Smoke test start =="
+echo "Output dir: ${OUT_DIR}"
+echo "Output dir: ${OUT_DIR}" > "${SUMMARY_FILE}"
 
 run_json_test \
   "slot1-chat" \
@@ -121,8 +134,11 @@ run_json_test \
   "embedding"
 
 # Reranker endpoint support differs by runtime. Try rerank first, then fallback to /v1/models.
-R4_OUT="${TMP_DIR}/slot4-rerank.json"
+R4_REQ="${OUT_DIR}/requests/slot4-rerank.json"
+R4_OUT="${OUT_DIR}/responses/slot4-rerank.json"
+printf "%s\n" "{\"model\":\"${MODEL_4_NAME}\",\"query\":\"대한민국 수도는?\",\"documents\":[\"서울\",\"부산\"]}" > "${R4_REQ}"
 R4_CODE="$(curl -sS -o "${R4_OUT}" -w "%{http_code}" \
+  -D "${OUT_DIR}/headers/slot4-rerank.hdr" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"${MODEL_4_NAME}\",\"query\":\"대한민국 수도는?\",\"documents\":[\"서울\",\"부산\"]}" \
   "http://127.0.0.1:${PORT_4}/v1/rerank" || true)"
@@ -152,8 +168,9 @@ with wave.open(out, "wb") as w:
     w.writeframes(frames)
 PY
 
-ASR_OUT="${TMP_DIR}/slot5-asr.json"
+ASR_OUT="${OUT_DIR}/responses/slot5-asr.json"
 ASR_CODE="$(curl -sS -o "${ASR_OUT}" -w "%{http_code}" \
+  -D "${OUT_DIR}/headers/slot5-asr.hdr" \
   -X POST "http://127.0.0.1:${PORT_5}/v1/audio/transcriptions" \
   -F "file=@${ASR_WAV}" \
   -F "model=${ASR_MODEL_NAME}" \
@@ -166,8 +183,10 @@ else
 fi
 
 # TTS endpoint: expect audio bytes on success.
-TTS_OUT="${TMP_DIR}/slot6-tts.bin"
-TTS_HDR="${TMP_DIR}/slot6-tts.hdr"
+TTS_REQ="${OUT_DIR}/requests/slot6-tts.json"
+printf "%s\n" "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"안녕하세요. 테스트 음성입니다.\",\"voice\":\"alloy\",\"response_format\":\"wav\"}" > "${TTS_REQ}"
+TTS_OUT="${OUT_DIR}/responses/slot6-tts.bin"
+TTS_HDR="${OUT_DIR}/headers/slot6-tts.hdr"
 TTS_CODE="$(curl -sS -o "${TTS_OUT}" -D "${TTS_HDR}" -w "%{http_code}" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"${MODEL_6_NAME}\",\"input\":\"안녕하세요. 테스트 음성입니다.\",\"voice\":\"alloy\",\"response_format\":\"wav\"}" \
@@ -187,8 +206,32 @@ echo
 echo "== Result =="
 echo "PASS: ${PASS_COUNT}"
 echo "FAIL: ${FAIL_COUNT}"
+{
+  echo
+  echo "== Result =="
+  echo "PASS: ${PASS_COUNT}"
+  echo "FAIL: ${FAIL_COUNT}"
+  echo
+  echo "Saved files:"
+  echo "- ${OUT_DIR}/summary.txt"
+  echo "- ${OUT_DIR}/requests/"
+  echo "- ${OUT_DIR}/responses/"
+  echo "- ${OUT_DIR}/headers/"
+} >> "${SUMMARY_FILE}"
+
+SERVICES=(mig-vllm-1 mig-vllm-2 mig-vllm-3 mig-vllm-4 mig-asr-5 mig-vllm-6)
+for svc in "${SERVICES[@]}"; do
+  docker compose logs --tail=120 "${svc}" > "${OUT_DIR}/docker/${svc}.log" 2>&1 || true
+done
+
+echo
+echo "Saved files:"
+echo "- ${OUT_DIR}/summary.txt"
+echo "- ${OUT_DIR}/requests/"
+echo "- ${OUT_DIR}/responses/"
+echo "- ${OUT_DIR}/headers/"
+echo "- ${OUT_DIR}/docker/*.log"
 
 if [[ "${FAIL_COUNT}" -gt 0 ]]; then
   exit 1
 fi
-
