@@ -10,7 +10,7 @@ This template assumes:
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
-- `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (TTS-focused config)
+- `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
 
 ## Prerequisites
 
@@ -162,10 +162,11 @@ GPU_MEMORY_UTILIZATION_6=0.9
 VLLM_EXTRA_ARGS_6=--swap-space 8
 ```
 
-`qwen3_tts` architecture warning appears frequently when remote-code loading is blocked. For slot 6 keep `--trust-remote-code` enabled:
+If logs show `model type qwen3_tts` architecture errors on slot 6, verify you are running the Omni image:
 
 ```bash
-VLLM_EXTRA_ARGS_6=--swap-space 8 --trust-remote-code
+docker compose pull mig-vllm-6
+docker compose up -d --force-recreate mig-vllm-6
 ```
 
 Endpoints:
@@ -255,10 +256,9 @@ If ASR image dependencies changed, rebuild only slot 5:
 docker compose up -d --build --force-recreate mig-asr-5
 ```
 
-If slot 6 logs contain `model type 'qwen3_tts'` / `Transformers does not recognize this architecture`, rebuild only slot 6 custom image:
+Slot 6 uses `vllm/vllm-omni:v0.14.0` (not `vllm-openai`). If slot 6 image changed, recreate only slot 6:
 
 ```bash
-docker compose build --no-cache mig-vllm-6
 docker compose up -d --force-recreate mig-vllm-6
 ```
 
