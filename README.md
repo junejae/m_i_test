@@ -7,6 +7,7 @@ This template assumes:
 - `GPU 1`: partitioned with MIG, then each MIG slice runs one independent vLLM server container
 - `mig-vllm-1`: `google/gemma-3-4b-it` (text-focused config)
 - `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
+- `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 
 ## Prerequisites
 
@@ -65,7 +66,7 @@ MIG_TARGET_GPU_INDEX=1 MIG_CREATE_ARGS='19,19' ./scripts/mig_prepare_gpu1.sh
 MIG_TARGET_GPU_INDEX=1 ./scripts/print_mig_uuid_env.sh
 ```
 
-Copy output values into `.env` for `MIG_UUID_1`, `MIG_UUID_2`.
+Copy output values into `.env` for `MIG_UUID_1`, `MIG_UUID_2`, `MIG_UUID_3`.
 
 ## 3) Start inference services
 
@@ -105,15 +106,28 @@ VLLM_EXTRA_ARGS_2=--swap-space 24 --cpu-offload-gb 12 --enforce-eager
 MM_IMAGE_LIMIT_2=1
 ```
 
+For `dragonkue/BGE-m3-ko` specifically, this profile is a good starting point:
+
+```bash
+TASK_3=embed
+MAX_MODEL_LEN_3=512
+MAX_NUM_SEQS_3=4
+MAX_NUM_BATCHED_TOKENS_3=256
+GPU_MEMORY_UTILIZATION_3=0.9
+VLLM_EXTRA_ARGS_3=--swap-space 8
+```
+
 Endpoints:
 - `http://localhost:${PORT_1:-8101}/v1`
 - `http://localhost:${PORT_2:-8102}/v1`
+- `http://localhost:${PORT_3:-8103}/v1`
 
 Health checks:
 
 ```bash
 curl -fsS http://localhost:${PORT_1:-8101}/health
 curl -fsS http://localhost:${PORT_2:-8102}/health
+curl -fsS http://localhost:${PORT_3:-8103}/health
 ```
 
 ## 4) Quick test requests
@@ -143,6 +157,17 @@ curl -sS http://localhost:${PORT_2:-8102}/v1/chat/completions \
         {"type": "image_url", "image_url": {"url": "https://picsum.photos/640/360"}}
       ]
     }]
+  }'
+```
+
+BGE-m3-ko (embeddings):
+
+```bash
+curl -sS http://localhost:${PORT_3:-8103}/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bge-m3-ko",
+    "input": ["안녕하세요", "벡터 검색 테스트 문장입니다."]
   }'
 ```
 
