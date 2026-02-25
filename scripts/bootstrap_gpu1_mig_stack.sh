@@ -76,8 +76,8 @@ UUID_LINES="$(
 )"
 
 UUID_COUNT="$(printf "%s\n" "${UUID_LINES}" | grep -c '^MIG_UUID_[0-9]\+=MIG-' || true)"
-if [[ "${UUID_COUNT}" -lt 3 ]]; then
-  echo "Need at least 3 MIG UUIDs on GPU ${MIG_TARGET_GPU_INDEX}, found ${UUID_COUNT}" >&2
+if [[ "${UUID_COUNT}" -lt 4 ]]; then
+  echo "Need at least 4 MIG UUIDs on GPU ${MIG_TARGET_GPU_INDEX}, found ${UUID_COUNT}" >&2
   echo "Current output:" >&2
   printf "%s\n" "${UUID_LINES}" >&2
   exit 1
@@ -86,24 +86,27 @@ fi
 UUID1="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_1=/{print $2; exit}')"
 UUID2="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_2=/{print $2; exit}')"
 UUID3="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_3=/{print $2; exit}')"
+UUID4="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_4=/{print $2; exit}')"
 
-if [[ -z "${UUID1}" || -z "${UUID2}" || -z "${UUID3}" ]]; then
-  echo "Failed to parse MIG_UUID_1, MIG_UUID_2, or MIG_UUID_3" >&2
+if [[ -z "${UUID1}" || -z "${UUID2}" || -z "${UUID3}" || -z "${UUID4}" ]]; then
+  echo "Failed to parse MIG_UUID_1, MIG_UUID_2, MIG_UUID_3, or MIG_UUID_4" >&2
   printf "%s\n" "${UUID_LINES}" >&2
   exit 1
 fi
 
-echo "[3/4] Updating .env with MIG_UUID_1, MIG_UUID_2, and MIG_UUID_3"
+echo "[3/4] Updating .env with MIG_UUID_1..MIG_UUID_4"
 upsert_env "MIG_TARGET_GPU_INDEX" "${MIG_TARGET_GPU_INDEX}"
 upsert_env "MIG_UUID_1" "${UUID1}"
 upsert_env "MIG_UUID_2" "${UUID2}"
 upsert_env "MIG_UUID_3" "${UUID3}"
+upsert_env "MIG_UUID_4" "${UUID4}"
 
 echo "Updated ${ENV_FILE}:"
 grep '^MIG_TARGET_GPU_INDEX=' "${ENV_FILE}" || true
 grep '^MIG_UUID_1=' "${ENV_FILE}" || true
 grep '^MIG_UUID_2=' "${ENV_FILE}" || true
 grep '^MIG_UUID_3=' "${ENV_FILE}" || true
+grep '^MIG_UUID_4=' "${ENV_FILE}" || true
 
 if [[ "${SKIP_COMPOSE_UP}" == "1" ]]; then
   echo "[4/4] SKIP_COMPOSE_UP=1, skipping docker compose up"

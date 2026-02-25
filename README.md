@@ -8,6 +8,7 @@ This template assumes:
 - `mig-vllm-1`: `google/gemma-3-4b-it` (text-focused config)
 - `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
+- `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
 
 ## Prerequisites
 
@@ -80,7 +81,7 @@ MIG_TARGET_GPU_INDEX=1 MIG_CREATE_ARGS='19,19' ./scripts/mig_prepare_gpu1.sh
 MIG_TARGET_GPU_INDEX=1 ./scripts/print_mig_uuid_env.sh
 ```
 
-Copy output values into `.env` for `MIG_UUID_1`, `MIG_UUID_2`, `MIG_UUID_3`.
+Copy output values into `.env` for `MIG_UUID_1`, `MIG_UUID_2`, `MIG_UUID_3`, `MIG_UUID_4`.
 
 ## 3) Start inference services
 
@@ -130,10 +131,21 @@ GPU_MEMORY_UTILIZATION_3=0.9
 VLLM_EXTRA_ARGS_3=--swap-space 8
 ```
 
+For `Dongjin-kr/ko-reranker` specifically, this profile is a good starting point:
+
+```bash
+MAX_MODEL_LEN_4=512
+MAX_NUM_SEQS_4=4
+MAX_NUM_BATCHED_TOKENS_4=512
+GPU_MEMORY_UTILIZATION_4=0.9
+VLLM_EXTRA_ARGS_4=--swap-space 8
+```
+
 Endpoints:
 - `http://localhost:${PORT_1:-8101}/v1`
 - `http://localhost:${PORT_2:-8102}/v1`
 - `http://localhost:${PORT_3:-8103}/v1`
+- `http://localhost:${PORT_4:-8104}/v1`
 
 Health checks:
 
@@ -141,6 +153,7 @@ Health checks:
 curl -fsS http://localhost:${PORT_1:-8101}/health
 curl -fsS http://localhost:${PORT_2:-8102}/health
 curl -fsS http://localhost:${PORT_3:-8103}/health
+curl -fsS http://localhost:${PORT_4:-8104}/health
 ```
 
 ## 4) Quick test requests
@@ -182,6 +195,12 @@ curl -sS http://localhost:${PORT_3:-8103}/v1/embeddings \
     "model": "bge-m3-ko",
     "input": ["안녕하세요", "벡터 검색 테스트 문장입니다."]
   }'
+```
+
+ko-reranker (candidate scoring/compat check):
+
+```bash
+curl -sS http://localhost:${PORT_4:-8104}/v1/models
 ```
 
 ## Notes
