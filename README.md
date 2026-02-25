@@ -145,9 +145,9 @@ VLLM_EXTRA_ARGS_4=--swap-space 8
 For `openai/whisper-large-v3` specifically, this profile is a good starting point:
 
 ```bash
-MAX_MODEL_LEN_5=256
+MAX_MODEL_LEN_5=2048
 MAX_NUM_SEQS_5=1
-MAX_NUM_BATCHED_TOKENS_5=256
+MAX_NUM_BATCHED_TOKENS_5=2048
 GPU_MEMORY_UTILIZATION_5=0.9
 VLLM_EXTRA_ARGS_5=--swap-space 8
 ```
