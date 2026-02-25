@@ -203,6 +203,7 @@ payload = {
     "model": model,
     "input": "테스트 음성입니다.",
     "response_format": "wav",
+    "max_new_tokens": 128,
 }
 
 if "base" in model_l:
@@ -220,6 +221,8 @@ if "base" in model_l:
             "task_type": "Base",
             "ref_audio": f"data:audio/wav;base64,{b64_wav}",
             "ref_text": "테스트 음성 참조 문장입니다.",
+            "x_vector_only_mode": True,
+            "language": "Korean",
         }
     )
 elif "voicedesign" in model_l:

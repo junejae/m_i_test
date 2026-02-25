@@ -155,11 +155,19 @@ ASR_LANGUAGE_5=ko
 For `Qwen/Qwen3-TTS-12Hz-1.7B-Base` specifically, this profile is a good starting point:
 
 ```bash
-MAX_MODEL_LEN_6=1024
+MAX_MODEL_LEN_6=512
 MAX_NUM_SEQS_6=1
-MAX_NUM_BATCHED_TOKENS_6=1024
-GPU_MEMORY_UTILIZATION_6=0.9
-VLLM_EXTRA_ARGS_6=--swap-space 8
+MAX_NUM_BATCHED_TOKENS_6=256
+GPU_MEMORY_UTILIZATION_6=0.8
+VLLM_EXTRA_ARGS_6=--swap-space 16 --cpu-offload-gb 8
+```
+
+If slot 6 still shows `EngineCore encountered an issue` on TTS requests, reduce generation budget first:
+
+```bash
+MAX_MODEL_LEN_6=384
+MAX_NUM_BATCHED_TOKENS_6=128
+GPU_MEMORY_UTILIZATION_6=0.75
 ```
 
 If logs show `model type qwen3_tts` architecture errors on slot 6, verify you are running the Omni image:
@@ -279,9 +287,9 @@ This script validates:
 - slot4 rerank (with `/v1/models` fallback)
 - slot5 ASR transcription (auto-generated 1s WAV)
 - slot6 TTS (`/v1/audio/speech`, model-type aware payload)
-: `...-Base` model -> `task_type=Base` + `ref_audio/ref_text`
-: `...-CustomVoice` model -> `task_type=CustomVoice`
-: `...-VoiceDesign` model -> `task_type=VoiceDesign`
+- `...-Base` model -> `task_type=Base` + `ref_audio/ref_text` + `x_vector_only_mode=true`
+- `...-CustomVoice` model -> `task_type=CustomVoice`
+- `...-VoiceDesign` model -> `task_type=VoiceDesign`
 - and strict runtime log scan per container (default ON)
 
 It also saves per-server artifacts under `logs/smoke-test-<timestamp>/`:
