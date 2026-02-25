@@ -205,23 +205,6 @@ else
   sed -n '1,10p' "${TTS_HDR}" 2>/dev/null || true
 fi
 
-echo
-echo "== Result =="
-echo "PASS: ${PASS_COUNT}"
-echo "FAIL: ${FAIL_COUNT}"
-{
-  echo
-  echo "== Result =="
-  echo "PASS: ${PASS_COUNT}"
-  echo "FAIL: ${FAIL_COUNT}"
-  echo
-  echo "Saved files:"
-  echo "- ${OUT_DIR}/summary.txt"
-  echo "- ${OUT_DIR}/requests/"
-  echo "- ${OUT_DIR}/responses/"
-  echo "- ${OUT_DIR}/headers/"
-} >> "${SUMMARY_FILE}"
-
 SERVICES=(mig-vllm-1 mig-vllm-2 mig-vllm-3 mig-vllm-4 mig-asr-5 mig-vllm-6)
 for svc in "${SERVICES[@]}"; do
   docker compose logs --since "${RUN_START_ISO}" "${svc}" > "${OUT_DIR}/docker/${svc}.log" 2>&1 || true
@@ -242,6 +225,24 @@ if [[ "${STRICT_LOG_SCAN}" == "1" ]]; then
     fi
   done
 fi
+
+echo
+echo "== Result =="
+echo "PASS: ${PASS_COUNT}"
+echo "FAIL: ${FAIL_COUNT}"
+{
+  echo
+  echo "== Result =="
+  echo "PASS: ${PASS_COUNT}"
+  echo "FAIL: ${FAIL_COUNT}"
+  echo
+  echo "Saved files:"
+  echo "- ${OUT_DIR}/summary.txt"
+  echo "- ${OUT_DIR}/requests/"
+  echo "- ${OUT_DIR}/responses/"
+  echo "- ${OUT_DIR}/headers/"
+  echo "- ${OUT_DIR}/docker/*.log"
+} >> "${SUMMARY_FILE}"
 
 echo
 echo "Saved files:"
