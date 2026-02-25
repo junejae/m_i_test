@@ -224,6 +224,12 @@ curl -sS http://localhost:${PORT_5:-8105}/v1/audio/transcriptions \
   -F "language=ko"
 ```
 
+If ASR image dependencies changed, rebuild only slot 5:
+
+```bash
+docker compose up -d --build --force-recreate mig-asr-5
+```
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.
