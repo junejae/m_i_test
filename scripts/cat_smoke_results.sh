@@ -6,6 +6,13 @@ LOG_ROOT="${SMOKE_LOG_ROOT:-${ROOT_DIR}/logs}"
 TARGET_DIR="${1:-}"
 DOCKER_TAIL_LINES="${DOCKER_TAIL_LINES:-80}"
 
+# TUI-friendly default: pipe output to pager so arrow-key scrolling works.
+if [[ -t 1 && "${NO_PAGER:-0}" != "1" ]]; then
+  if command -v less >/dev/null 2>&1; then
+    exec > >(less -R -X)
+  fi
+fi
+
 if [[ -z "${TARGET_DIR}" ]]; then
   TARGET_DIR="$(ls -1dt "${LOG_ROOT}"/smoke-test-* 2>/dev/null | head -n 1 || true)"
 fi
@@ -70,4 +77,3 @@ for f in "${TARGET_DIR}"/docker/*.log; do
   echo "--- $(basename "$f") ---"
   tail -n "${DOCKER_TAIL_LINES}" "$f"
 done
-

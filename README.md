@@ -310,6 +310,7 @@ chmod +x scripts/cat_smoke_results.sh
 Optional:
 - `./scripts/cat_smoke_results.sh /absolute/path/to/logs/smoke-test-...`
 - `DOCKER_TAIL_LINES=200 ./scripts/cat_smoke_results.sh`
+- `NO_PAGER=1 ./scripts/cat_smoke_results.sh` (disable pager)
 
 If you want API checks only (disable runtime log strict scan):
 
