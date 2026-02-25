@@ -6,6 +6,8 @@ ENV_FILE="${ROOT_DIR}/.env"
 NOW="$(date +%Y%m%d-%H%M%S)"
 LOG_ROOT="${SMOKE_LOG_ROOT:-${ROOT_DIR}/logs}"
 OUT_DIR="${SMOKE_OUT_DIR:-${LOG_ROOT}/smoke-test-${NOW}}"
+RUN_START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+STRICT_LOG_SCAN="${STRICT_LOG_SCAN:-1}"
 mkdir -p "${OUT_DIR}"
 mkdir -p "${OUT_DIR}/requests" "${OUT_DIR}/responses" "${OUT_DIR}/headers" "${OUT_DIR}/docker"
 
@@ -114,6 +116,7 @@ run_json_test() {
 echo "== Smoke test start =="
 echo "Output dir: ${OUT_DIR}"
 echo "Output dir: ${OUT_DIR}" > "${SUMMARY_FILE}"
+echo "Run started at (UTC): ${RUN_START_ISO}" | tee -a "${SUMMARY_FILE}" >/dev/null
 
 run_json_test \
   "slot1-chat" \
@@ -221,8 +224,24 @@ echo "FAIL: ${FAIL_COUNT}"
 
 SERVICES=(mig-vllm-1 mig-vllm-2 mig-vllm-3 mig-vllm-4 mig-asr-5 mig-vllm-6)
 for svc in "${SERVICES[@]}"; do
-  docker compose logs --tail=120 "${svc}" > "${OUT_DIR}/docker/${svc}.log" 2>&1 || true
+  docker compose logs --since "${RUN_START_ISO}" "${svc}" > "${OUT_DIR}/docker/${svc}.log" 2>&1 || true
 done
+
+if [[ "${STRICT_LOG_SCAN}" == "1" ]]; then
+  ERROR_REGEX='(Traceback|ERROR|Error response from daemon|exited with code|engine core initialization failed|ValidationError|RuntimeError)'
+  for svc in "${SERVICES[@]}"; do
+    log_file="${OUT_DIR}/docker/${svc}.log"
+    if [[ -f "${log_file}" ]] && grep -Eiq "${ERROR_REGEX}" "${log_file}"; then
+      print_fail "${svc}-runtime-log"
+      {
+        echo "--- ${svc} matched error patterns ---"
+        grep -Ein "${ERROR_REGEX}" "${log_file}" | head -n 20
+      } >> "${SUMMARY_FILE}"
+    else
+      print_ok "${svc}-runtime-log"
+    fi
+  done
+fi
 
 echo
 echo "Saved files:"

@@ -279,6 +279,7 @@ This script validates:
 - slot4 rerank (with `/v1/models` fallback)
 - slot5 ASR transcription (auto-generated 1s WAV)
 - slot6 TTS (`/v1/audio/speech`)
+- and strict runtime log scan per container (default ON)
 
 It also saves per-server artifacts under `logs/smoke-test-<timestamp>/`:
 - `summary.txt`
@@ -298,6 +299,12 @@ chmod +x scripts/cat_smoke_results.sh
 Optional:
 - `./scripts/cat_smoke_results.sh /absolute/path/to/logs/smoke-test-...`
 - `DOCKER_TAIL_LINES=200 ./scripts/cat_smoke_results.sh`
+
+If you want API checks only (disable runtime log strict scan):
+
+```bash
+STRICT_LOG_SCAN=0 ./scripts/smoke_test_all_services.sh
+```
 
 ## Notes
 
