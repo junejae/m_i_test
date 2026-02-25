@@ -287,6 +287,18 @@ It also saves per-server artifacts under `logs/smoke-test-<timestamp>/`:
 - `headers/`
 - `docker/mig-*.log`
 
+If you are in remote desktop/TUI and want to view everything with one command:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/cat_smoke_results.sh
+./scripts/cat_smoke_results.sh
+```
+
+Optional:
+- `./scripts/cat_smoke_results.sh /absolute/path/to/logs/smoke-test-...`
+- `DOCKER_TAIL_LINES=200 ./scripts/cat_smoke_results.sh`
+
 ## Notes
 
 - This stack does not allocate or touch `GPU 0`.
