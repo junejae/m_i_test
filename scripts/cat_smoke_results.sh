@@ -6,8 +6,8 @@ LOG_ROOT="${SMOKE_LOG_ROOT:-${ROOT_DIR}/logs}"
 TARGET_DIR="${1:-}"
 DOCKER_TAIL_LINES="${DOCKER_TAIL_LINES:-80}"
 
-# TUI-friendly default: pipe output to pager so arrow-key scrolling works.
-if [[ -t 1 && "${NO_PAGER:-0}" != "1" ]]; then
+# Default: plain cat-style output. Enable pager only when requested.
+if [[ -t 1 && "${USE_PAGER:-0}" == "1" ]]; then
   if command -v less >/dev/null 2>&1; then
     exec > >(less -R -X)
   fi
