@@ -11,6 +11,7 @@ This template assumes:
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 - `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
+- `proxy-gateway`: HTTPS reverse proxy on 443 with `X-API-Key` auth
 
 ## Prerequisites
 
@@ -90,6 +91,9 @@ Copy output values into `.env` for `MIG_UUID_1` ~ `MIG_UUID_6`.
 ```bash
 docker compose up -d
 ```
+
+By default, model ports `8101~8106` are bound to `127.0.0.1` only.
+External access should go through `proxy-gateway` on HTTPS 443.
 
 If you hit `Engine core initialization failed`, reduce memory pressure in `.env` first:
 
@@ -185,6 +189,14 @@ Endpoints:
 - `http://localhost:${PORT_5:-8105}/v1`
 - `http://localhost:${PORT_6:-8106}/v1`
 
+External HTTPS endpoints via proxy:
+- `https://<SERVER_IP>/slot1/v1/...`
+- `https://<SERVER_IP>/slot2/v1/...`
+- `https://<SERVER_IP>/slot3/v1/...`
+- `https://<SERVER_IP>/slot4/v1/...`
+- `https://<SERVER_IP>/slot5/v1/...`
+- `https://<SERVER_IP>/slot6/v1/...`
+
 Health checks:
 
 ```bash
@@ -271,6 +283,39 @@ docker compose up -d --force-recreate mig-vllm-6
 ```
 
 If slot 6 fails with `exec: \"Qwen/...\": no such file or directory`, it means the command was not launched via `vllm serve`. Pull latest `main` and recreate slot 6.
+
+## 4-1) HTTPS proxy usage (recommended for public access)
+
+Set a strong API key in `.env`:
+
+```bash
+PROXY_API_KEY=your-strong-random-key
+```
+
+Bring up proxy:
+
+```bash
+docker compose up -d proxy-gateway
+```
+
+Test from remote client (self-signed/internal CA default, so `-k` is used):
+
+```bash
+curl -k -sS https://<SERVER_IP>/slot1/health -H "X-API-Key: your-strong-random-key"
+curl -k -sS https://<SERVER_IP>/slot1/v1/models -H "X-API-Key: your-strong-random-key"
+```
+
+Example chat completion through proxy:
+
+```bash
+curl -k -sS https://<SERVER_IP>/slot1/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-strong-random-key" \
+  -d '{
+    "model": "gemma3-4b-it",
+    "messages": [{"role": "user", "content": "한 줄 소개해줘."}]
+  }'
+```
 
 ## 5) One-command smoke test (all slots)
 

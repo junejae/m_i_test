@@ -41,7 +41,7 @@ services:
       --tensor-parallel-size 1
       ${VLLM_EXTRA_ARGS_1}
     ports:
-      - "${PORT_1}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT_1}:8000"
 
   mig-vllm-2:
     <<: *vllm-common
@@ -65,7 +65,7 @@ services:
       --tensor-parallel-size 1
       ${VLLM_EXTRA_ARGS_2}
     ports:
-      - "${PORT_2}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT_2}:8000"
 
   mig-vllm-3:
     <<: *vllm-common
@@ -87,7 +87,7 @@ services:
       --tensor-parallel-size 1
       ${VLLM_EXTRA_ARGS_3}
     ports:
-      - "${PORT_3}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT_3}:8000"
 
   mig-vllm-4:
     <<: *vllm-common
@@ -109,7 +109,7 @@ services:
       --tensor-parallel-size 1
       ${VLLM_EXTRA_ARGS_4}
     ports:
-      - "${PORT_4}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT_4}:8000"
 
   mig-asr-5:
     build:
@@ -134,7 +134,7 @@ services:
       timeout: 5s
       retries: 15
     ports:
-      - "${PORT_5}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT_5}:8000"
 
   mig-vllm-6:
     # Qwen3-TTS requires the vLLM-Omni serving path.
@@ -171,4 +171,32 @@ services:
       --tensor-parallel-size 1
       ${VLLM_EXTRA_ARGS_6}
     ports:
-      - "${PORT_6}:8000"
+      - "${API_BIND_HOST:-127.0.0.1}:${PORT_6}:8000"
+
+  proxy-gateway:
+    image: caddy:2
+    container_name: proxy-gateway
+    depends_on:
+      - mig-vllm-1
+      - mig-vllm-2
+      - mig-vllm-3
+      - mig-vllm-4
+      - mig-asr-5
+      - mig-vllm-6
+    environment:
+      PROXY_API_KEY: ${PROXY_API_KEY:-}
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy_caddy_data:/data
+      - proxy_caddy_config:/config
+    command: >
+      /bin/sh -c
+      'test -n "$$PROXY_API_KEY" || { echo "PROXY_API_KEY is required"; exit 1; };
+      caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
+    restart: unless-stopped
+    ports:
+      - "${PROXY_BIND_HOST:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
+
+volumes:
+  proxy_caddy_data:
+  proxy_caddy_config:

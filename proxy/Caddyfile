@@ -1,0 +1,37 @@
+{
+  auto_https off
+}
+
+:443 {
+  # Use an internal CA cert by default. For public domains, replace with ACME config.
+  tls internal
+
+  @unauthorized not header X-API-Key {$PROXY_API_KEY}
+  respond @unauthorized "unauthorized" 401
+
+  handle_path /slot1/* {
+    reverse_proxy mig-vllm-1:8000
+  }
+
+  handle_path /slot2/* {
+    reverse_proxy mig-vllm-2:8000
+  }
+
+  handle_path /slot3/* {
+    reverse_proxy mig-vllm-3:8000
+  }
+
+  handle_path /slot4/* {
+    reverse_proxy mig-vllm-4:8000
+  }
+
+  handle_path /slot5/* {
+    reverse_proxy mig-asr-5:8000
+  }
+
+  handle_path /slot6/* {
+    reverse_proxy mig-vllm-6:8000
+  }
+
+  respond "not found" 404
+}
