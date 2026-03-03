@@ -108,6 +108,18 @@ PROXY_API_KEY=your-strong-random-key MIG_TARGET_GPU_INDEX=1 ./scripts/recover_en
 docker compose up -d
 ```
 
+Or use one-command startup script (recommended after reboot):
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/start_server_stack.sh
+MIG_TARGET_GPU_INDEX=1 ./scripts/start_server_stack.sh
+```
+
+Options:
+- `AUTO_REPARTITION=1` : repartition GPU1 to 7x1g before startup
+- `FORCE_RECREATE=1` : run `docker compose up -d --force-recreate`
+
 By default, model ports `8101~8106` are bound to `127.0.0.1` only.
 External access should go through `proxy-gateway` on HTTPS 443.
 
