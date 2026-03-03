@@ -9,6 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from argparse import ArgumentParser
 
 import gradio as gr
 
@@ -34,6 +35,15 @@ def _probe(url: str, timeout_seconds: int = 10) -> tuple[bool, str]:
 
 
 def main() -> int:
+    parser = ArgumentParser(description="Run Gradio share probe and keep tunnel alive.")
+    parser.add_argument(
+        "--hold-seconds",
+        type=int,
+        default=300,
+        help="Seconds to keep the share URL alive after probe (default: 300).",
+    )
+    args = parser.parse_args()
+
     with gr.Blocks(title="gradio-share-probe") as demo:
         gr.Markdown("# Gradio Share Probe")
         txt = gr.Textbox(label="Input")
@@ -61,6 +71,14 @@ def main() -> int:
 
     result = {"ok": ok, "reason": reason, "local_url": local_url, "share_url": share_url}
     print("PROBE_RESULT_JSON=" + json.dumps(result, ensure_ascii=True), flush=True)
+
+    if ok and args.hold_seconds > 0:
+        print(f"HOLDING_SECONDS={args.hold_seconds}", flush=True)
+        print("Press Ctrl+C to stop early.", flush=True)
+        try:
+            time.sleep(args.hold_seconds)
+        except KeyboardInterrupt:
+            print("Interrupted by user.", flush=True)
 
     demo.close()
     return 0 if ok else 2
