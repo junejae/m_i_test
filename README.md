@@ -342,6 +342,20 @@ docker compose up -d --force-recreate proxy-gateway
 docker compose logs --tail=100 proxy-gateway
 ```
 
+One-command fix (auto-detect OS service IP and apply):
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/fix_proxy_server_name.sh
+./scripts/fix_proxy_server_name.sh
+```
+
+Optional manual target:
+
+```bash
+TARGET_IP=172.0.20.94 ./scripts/fix_proxy_server_name.sh
+```
+
 Example chat completion through proxy:
 
 ```bash
