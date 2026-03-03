@@ -247,6 +247,28 @@ Stop tunnel:
 ./scripts/stop_public_tunnel.sh
 ```
 
+Slot6(TTS) focused debug (detects JSON error payload even on HTTP 200):
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/debug_slot6_tts.sh
+./scripts/debug_slot6_tts.sh
+```
+
+Via tunnel URL:
+
+```bash
+./scripts/debug_slot6_tts.sh "https://<random>.trycloudflare.com/slot6"
+```
+
+If slot6 returns `HTTP 200` with JSON `error` payload (`EngineCore encountered an issue`), apply a conservative slot6 profile and recreate only slot6:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/tune_slot6_safe_profile.sh
+./scripts/tune_slot6_safe_profile.sh
+```
+
 Health checks:
 
 ```bash

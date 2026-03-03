@@ -4,3 +4,4 @@
 docs/
 proxy-nginx/certs/*
 .gradio/
+logs/

@@ -84,6 +84,32 @@ print("1" if has_key(data, key) else "0")
 PY
 }
 
+json_error_message() {
+  local file="$1"
+  python3 - "$file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text())
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+if isinstance(data, dict) and "error" in data:
+    err = data["error"]
+    if isinstance(err, dict):
+        msg = err.get("message") or json.dumps(err, ensure_ascii=False)
+    else:
+        msg = str(err)
+    print(msg)
+else:
+    print("")
+PY
+}
+
 run_json_test() {
   local name="$1"
   local url="$2"
@@ -102,6 +128,14 @@ run_json_test() {
   if [[ "${code}" != "200" ]]; then
     print_fail "${name} (HTTP ${code})"
     sed -n '1,6p' "${out_file}" 2>/dev/null || true
+    return
+  fi
+
+  local err_msg
+  err_msg="$(json_error_message "${out_file}")"
+  if [[ -n "${err_msg}" ]]; then
+    print_fail "${name} (error payload: ${err_msg})"
+    sed -n '1,8p' "${out_file}" 2>/dev/null || true
     return
   fi
 
@@ -253,7 +287,20 @@ TTS_CODE="$(curl -sS -o "${TTS_OUT}" -D "${TTS_HDR}" -w "%{http_code}" \
   "http://127.0.0.1:${PORT_6}/v1/audio/speech" || true)"
 if [[ "${TTS_CODE}" == "200" ]]; then
   if [[ -s "${TTS_OUT}" ]]; then
-    print_ok "slot6-tts"
+    TTS_ERR="$(json_error_message "${TTS_OUT}")"
+    if [[ -n "${TTS_ERR}" ]]; then
+      print_fail "slot6-tts (error payload: ${TTS_ERR})"
+      sed -n '1,8p' "${TTS_OUT}" 2>/dev/null || true
+    elif xxd -l 4 -p "${TTS_OUT}" 2>/dev/null | grep -qi '^52494646$'; then
+      # RIFF magic for wav output
+      print_ok "slot6-tts"
+    elif xxd -l 3 -p "${TTS_OUT}" 2>/dev/null | grep -qi '^494433$'; then
+      # ID3 magic for mp3 output
+      print_ok "slot6-tts"
+    else
+      print_fail "slot6-tts (non-audio payload)"
+      sed -n '1,8p' "${TTS_HDR}" 2>/dev/null || true
+    fi
   else
     print_fail "slot6-tts (empty body)"
   fi
