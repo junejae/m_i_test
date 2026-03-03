@@ -2,7 +2,8 @@
   auto_https off
 }
 
-:443 {
+# Bind TLS cert to explicit hostnames/IPs to avoid handshake issues on raw :443.
+{$PROXY_SERVER_NAME:127.0.0.1}:443, localhost:443 {
   # Use an internal CA cert by default. For public domains, replace with ACME config.
   tls internal
 

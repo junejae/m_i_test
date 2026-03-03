@@ -306,6 +306,7 @@ Set a strong API key in `.env`:
 
 ```bash
 PROXY_API_KEY=your-strong-random-key
+PROXY_SERVER_NAME=<SERVER_IP_OR_DNS>
 ```
 
 Bring up proxy:
@@ -319,6 +320,14 @@ Test from remote client (self-signed/internal CA default, so `-k` is used):
 ```bash
 curl -k -sS https://<SERVER_IP>/slot1/health -H "X-API-Key: your-strong-random-key"
 curl -k -sS https://<SERVER_IP>/slot1/v1/models -H "X-API-Key: your-strong-random-key"
+```
+
+If you see `tlsv1 alert internal error`, verify `PROXY_SERVER_NAME` in `.env` matches
+the host/IP you are calling and recreate proxy:
+
+```bash
+docker compose up -d --force-recreate proxy-gateway
+docker compose logs --tail=100 proxy-gateway
 ```
 
 Example chat completion through proxy:

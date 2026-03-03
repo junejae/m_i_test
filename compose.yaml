@@ -185,6 +185,7 @@ services:
       - mig-vllm-6
     environment:
       PROXY_API_KEY: ${PROXY_API_KEY:-}
+      PROXY_SERVER_NAME: ${PROXY_SERVER_NAME:-127.0.0.1}
     volumes:
       - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - proxy_caddy_data:/data
