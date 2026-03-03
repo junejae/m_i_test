@@ -95,6 +95,13 @@ MIG_TARGET_GPU_INDEX=1 ./scripts/recover_env_mig_uuid.sh
 docker compose up -d
 ```
 
+When `PROXY_API_KEY` is empty/placeholder, this script prompts for it interactively.
+For non-interactive runs, pass it via environment variable:
+
+```bash
+PROXY_API_KEY=your-strong-random-key MIG_TARGET_GPU_INDEX=1 ./scripts/recover_env_mig_uuid.sh
+```
+
 ## 3) Start inference services
 
 ```bash
