@@ -188,11 +188,8 @@ services:
     volumes:
       - ./proxy-nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./proxy-nginx/certs:/etc/nginx/certs:ro
-    command: >
-      /bin/sh -c 'test -n "$$PROXY_API_KEY" || { echo "PROXY_API_KEY is required"; exit 1; };
-      test -f /etc/nginx/certs/server.crt || { echo "missing /etc/nginx/certs/server.crt"; exit 1; };
-      test -f /etc/nginx/certs/server.key || { echo "missing /etc/nginx/certs/server.key"; exit 1; };
-      nginx -g "daemon off;"'
+    # Keep nginx command form so docker-entrypoint runs template envsubst.
+    command: ["nginx", "-g", "daemon off;"]
     restart: unless-stopped
     ports:
       - "${PROXY_BIND_HOST:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
