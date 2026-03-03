@@ -356,6 +356,19 @@ Optional manual target:
 TARGET_IP=172.0.20.94 ./scripts/fix_proxy_server_name.sh
 ```
 
+If HTTPS still fails with `tlsv1 alert internal error`, run one-command TLS repair:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/repair_proxy_tls.sh
+./scripts/repair_proxy_tls.sh
+```
+
+Options:
+- `TLS_TEST_ONLY=1 ./scripts/repair_proxy_tls.sh`
+- `RESET_CADDY_VOLUMES=0 ./scripts/repair_proxy_tls.sh`
+- `API_KEY_OVERRIDE=... ./scripts/repair_proxy_tls.sh`
+
 Example chat completion through proxy:
 
 ```bash
