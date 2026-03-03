@@ -55,7 +55,10 @@ fi
 echo "[1/4] Set PROXY_SERVER_NAME=${TARGET_IP}"
 upsert_env "PROXY_SERVER_NAME" "${TARGET_IP}"
 
-echo "[2/4] Recreate proxy-gateway"
+echo "[2/5] Regenerate proxy TLS cert (CN/SAN)"
+FORCE_RENEW=1 "${SCRIPT_DIR}/init_proxy_tls_cert.sh"
+
+echo "[3/5] Recreate proxy-gateway"
 cd "${PROJECT_ROOT}"
 if [[ "${FORCE_RECREATE}" == "1" ]]; then
   docker compose up -d --force-recreate proxy-gateway
@@ -63,10 +66,10 @@ else
   docker compose up -d proxy-gateway
 fi
 
-echo "[3/4] Show proxy logs"
+echo "[4/5] Show proxy logs"
 docker compose logs --tail=80 proxy-gateway || true
 
-echo "[4/4] Health checks"
+echo "[5/5] Health checks"
 echo "- localhost:"
 curl -k -sS "https://localhost:443/slot1/health" -H "X-API-Key: ${API_KEY}" || true
 echo
@@ -77,4 +80,3 @@ echo
 echo "Done."
 echo "Current .env:"
 grep -E '^PROXY_SERVER_NAME=|^PROXY_API_KEY=' "${ENV_FILE}" | sed 's/^PROXY_API_KEY=.*/PROXY_API_KEY=*** (set)/'
-

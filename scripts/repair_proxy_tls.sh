@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${PROJECT_ROOT}/.env"
 
-RESET_CADDY_VOLUMES="${RESET_CADDY_VOLUMES:-1}"
+RESET_PROXY_CERT="${RESET_PROXY_CERT:-1}"
 TLS_TEST_ONLY="${TLS_TEST_ONLY:-0}"
 API_KEY_OVERRIDE="${API_KEY_OVERRIDE:-}"
 
@@ -47,13 +47,12 @@ if [[ "${TLS_TEST_ONLY}" == "1" ]]; then
   exit "${TLS_RC}"
 fi
 
-if [[ "${RESET_CADDY_VOLUMES}" == "1" ]]; then
-  echo "[2/4] Reset caddy volumes and recreate proxy-gateway"
-  docker compose stop proxy-gateway || true
-  docker volume rm -f mig-inference_proxy_caddy_data mig-inference_proxy_caddy_config || true
-  docker compose up -d proxy-gateway
+if [[ "${RESET_PROXY_CERT}" == "1" ]]; then
+  echo "[2/4] Regenerate proxy TLS cert and recreate proxy-gateway"
+  FORCE_RENEW=1 "${SCRIPT_DIR}/init_proxy_tls_cert.sh"
+  docker compose up -d --force-recreate proxy-gateway
 else
-  echo "[2/4] Recreate proxy-gateway without volume reset"
+  echo "[2/4] Recreate proxy-gateway without cert reset"
   docker compose up -d --force-recreate proxy-gateway
 fi
 
@@ -67,4 +66,3 @@ curl -k -sS --resolve "${SERVER_NAME}:443:127.0.0.1" \
   -H "X-API-Key: ${API_KEY}" || true
 echo
 echo "Done."
-

@@ -174,7 +174,7 @@ services:
       - "${API_BIND_HOST:-127.0.0.1}:${PORT_6}:8000"
 
   proxy-gateway:
-    image: caddy:2
+    image: nginx:1.27-alpine
     container_name: proxy-gateway
     depends_on:
       - mig-vllm-1
@@ -185,19 +185,14 @@ services:
       - mig-vllm-6
     environment:
       PROXY_API_KEY: ${PROXY_API_KEY:-}
-      PROXY_SERVER_NAME: ${PROXY_SERVER_NAME:-127.0.0.1}
     volumes:
-      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - proxy_caddy_data:/data
-      - proxy_caddy_config:/config
+      - ./proxy-nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./proxy-nginx/certs:/etc/nginx/certs:ro
     command: >
-      /bin/sh -c
-      'test -n "$$PROXY_API_KEY" || { echo "PROXY_API_KEY is required"; exit 1; };
-      caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
+      /bin/sh -c 'test -n "$$PROXY_API_KEY" || { echo "PROXY_API_KEY is required"; exit 1; };
+      test -f /etc/nginx/certs/server.crt || { echo "missing /etc/nginx/certs/server.crt"; exit 1; };
+      test -f /etc/nginx/certs/server.key || { echo "missing /etc/nginx/certs/server.key"; exit 1; };
+      nginx -g "daemon off;"'
     restart: unless-stopped
     ports:
       - "${PROXY_BIND_HOST:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
-
-volumes:
-  proxy_caddy_data:
-  proxy_caddy_config:

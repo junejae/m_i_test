@@ -11,7 +11,7 @@ This template assumes:
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 - `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
-- `proxy-gateway`: HTTPS reverse proxy on 443 with `X-API-Key` auth
+- `proxy-gateway`: Nginx HTTPS reverse proxy on 443 with `X-API-Key` auth
 
 ## Prerequisites
 
@@ -324,20 +324,21 @@ PROXY_SERVER_NAME=<SERVER_IP_OR_DNS>
 Bring up proxy:
 
 ```bash
+./scripts/init_proxy_tls_cert.sh
 docker compose up -d proxy-gateway
 ```
 
-Test from remote client (self-signed/internal CA default, so `-k` is used):
+Test from remote client (self-signed cert default, so `-k` is used):
 
 ```bash
 curl -k -sS https://<SERVER_IP>/slot1/health -H "X-API-Key: your-strong-random-key"
 curl -k -sS https://<SERVER_IP>/slot1/v1/models -H "X-API-Key: your-strong-random-key"
 ```
 
-If you see `tlsv1 alert internal error`, verify `PROXY_SERVER_NAME` in `.env` matches
-the host/IP you are calling and recreate proxy:
+If you see `tlsv1 alert internal error`, regenerate proxy cert and recreate proxy:
 
 ```bash
+./scripts/init_proxy_tls_cert.sh
 docker compose up -d --force-recreate proxy-gateway
 docker compose logs --tail=100 proxy-gateway
 ```
@@ -366,7 +367,7 @@ chmod +x scripts/repair_proxy_tls.sh
 
 Options:
 - `TLS_TEST_ONLY=1 ./scripts/repair_proxy_tls.sh`
-- `RESET_CADDY_VOLUMES=0 ./scripts/repair_proxy_tls.sh`
+- `RESET_PROXY_CERT=0 ./scripts/repair_proxy_tls.sh`
 - `API_KEY_OVERRIDE=... ./scripts/repair_proxy_tls.sh`
 
 Example chat completion through proxy:

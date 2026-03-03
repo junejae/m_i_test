@@ -57,7 +57,10 @@ if [[ -z "${current_server_name}" ]]; then
   fi
 fi
 
-echo "[4/5] Start docker compose services"
+echo "[4/6] Ensure proxy TLS cert files"
+"${SCRIPT_DIR}/init_proxy_tls_cert.sh"
+
+echo "[5/6] Start docker compose services"
 cd "${PROJECT_ROOT}"
 if [[ "${FORCE_RECREATE}" == "1" ]]; then
   docker compose up -d --force-recreate
@@ -65,10 +68,9 @@ else
   docker compose up -d
 fi
 
-echo "[5/5] Summary"
+echo "[6/6] Summary"
 docker compose ps
 echo
 echo "Quick checks:"
 echo "  curl -k -sS https://127.0.0.1:443/slot1/health -H \"X-API-Key: <PROXY_API_KEY>\""
 echo "  curl -k -sS https://127.0.0.1:443/slot1/v1/models -H \"X-API-Key: <PROXY_API_KEY>\""
-

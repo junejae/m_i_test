@@ -1,0 +1,52 @@
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate /etc/nginx/certs/server.crt;
+    ssl_certificate_key /etc/nginx/certs/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 100m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    location /slot1/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot1/(.*)$ /$1 break;
+        proxy_pass http://mig-vllm-1:8000;
+    }
+
+    location /slot2/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot2/(.*)$ /$1 break;
+        proxy_pass http://mig-vllm-2:8000;
+    }
+
+    location /slot3/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot3/(.*)$ /$1 break;
+        proxy_pass http://mig-vllm-3:8000;
+    }
+
+    location /slot4/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot4/(.*)$ /$1 break;
+        proxy_pass http://mig-vllm-4:8000;
+    }
+
+    location /slot5/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot5/(.*)$ /$1 break;
+        proxy_pass http://mig-asr-5:8000;
+    }
+
+    location /slot6/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot6/(.*)$ /$1 break;
+        proxy_pass http://mig-vllm-6:8000;
+    }
+
+    location / {
+        return 404;
+    }
+}
