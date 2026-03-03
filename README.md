@@ -225,6 +225,28 @@ External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot5/v1/...`
 - `https://<SERVER_IP>:8443/slot6/v1/...`
 
+Quick external sharing without network/NAT changes (Cloudflare quick tunnel):
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/*.sh
+./scripts/start_public_tunnel.sh
+```
+
+This prints a temporary URL like `https://<random>.trycloudflare.com`.
+Use it as:
+
+```bash
+TUNNEL_URL="$(./scripts/show_public_tunnel_url.sh)"
+curl -sS "$TUNNEL_URL/slot1/health" -H "X-API-Key: ${PROXY_API_KEY}"
+```
+
+Stop tunnel:
+
+```bash
+./scripts/stop_public_tunnel.sh
+```
+
 Health checks:
 
 ```bash

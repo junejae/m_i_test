@@ -193,3 +193,21 @@ services:
     restart: unless-stopped
     ports:
       - "${PROXY_BIND_HOST:-0.0.0.0}:${PROXY_HTTPS_PORT:-8443}:443"
+
+  edge-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: edge-tunnel
+    profiles: ["tunnel"]
+    depends_on:
+      - proxy-gateway
+    # Quick tunnel mode (no Cloudflare account required).
+    # It exposes the proxy through a temporary *.trycloudflare.com URL.
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --loglevel
+      - ${TUNNEL_LOGLEVEL:-info}
+      - --url
+      - ${TUNNEL_TARGET_URL:-https://proxy-gateway:443}
+      - --no-tls-verify
+    restart: unless-stopped
