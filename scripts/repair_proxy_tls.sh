@@ -16,6 +16,8 @@ fi
 
 SERVER_NAME="$(awk -F= '$1=="PROXY_SERVER_NAME"{print $2; exit}' "${ENV_FILE}" || true)"
 API_KEY="$(awk -F= '$1=="PROXY_API_KEY"{print $2; exit}' "${ENV_FILE}" || true)"
+PROXY_PORT="$(awk -F= '$1=="PROXY_HTTPS_PORT"{print $2; exit}' "${ENV_FILE}" || true)"
+PROXY_PORT="${PROXY_PORT:-8443}"
 if [[ -n "${API_KEY_OVERRIDE}" ]]; then
   API_KEY="${API_KEY_OVERRIDE}"
 fi
@@ -33,7 +35,7 @@ cd "${PROJECT_ROOT}"
 
 echo "[1/4] TLS handshake test with SNI=${SERVER_NAME}"
 set +e
-openssl s_client -connect 127.0.0.1:443 -servername "${SERVER_NAME}" -tls1_2 </dev/null >/tmp/proxy_tls_test.out 2>&1
+openssl s_client -connect "127.0.0.1:${PROXY_PORT}" -servername "${SERVER_NAME}" -tls1_2 </dev/null >/tmp/proxy_tls_test.out 2>&1
 TLS_RC=$?
 set -e
 if grep -q "BEGIN CERTIFICATE" /tmp/proxy_tls_test.out; then
@@ -60,9 +62,9 @@ echo "[3/4] Show recent proxy logs"
 docker compose logs --tail=120 proxy-gateway || true
 
 echo "[4/4] Verify TLS and health via SNI-resolved local endpoint"
-openssl s_client -connect 127.0.0.1:443 -servername "${SERVER_NAME}" -tls1_2 </dev/null | sed -n '1,25p' || true
-curl -k -sS --resolve "${SERVER_NAME}:443:127.0.0.1" \
-  "https://${SERVER_NAME}/slot1/health" \
+openssl s_client -connect "127.0.0.1:${PROXY_PORT}" -servername "${SERVER_NAME}" -tls1_2 </dev/null | sed -n '1,25p' || true
+curl -k -sS --resolve "${SERVER_NAME}:${PROXY_PORT}:127.0.0.1" \
+  "https://${SERVER_NAME}:${PROXY_PORT}/slot1/health" \
   -H "X-API-Key: ${API_KEY}" || true
 echo
 echo "Done."

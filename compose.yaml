@@ -192,4 +192,4 @@ services:
     command: ["nginx", "-g", "daemon off;"]
     restart: unless-stopped
     ports:
-      - "${PROXY_BIND_HOST:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
+      - "${PROXY_BIND_HOST:-0.0.0.0}:${PROXY_HTTPS_PORT:-8443}:443"

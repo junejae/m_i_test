@@ -72,5 +72,5 @@ echo "[6/6] Summary"
 docker compose ps
 echo
 echo "Quick checks:"
-echo "  curl -k -sS https://127.0.0.1:443/slot1/health -H \"X-API-Key: <PROXY_API_KEY>\""
-echo "  curl -k -sS https://127.0.0.1:443/slot1/v1/models -H \"X-API-Key: <PROXY_API_KEY>\""
+echo "  curl -k -sS https://127.0.0.1:\${PROXY_HTTPS_PORT:-8443}/slot1/health -H \"X-API-Key: <PROXY_API_KEY>\""
+echo "  curl -k -sS https://127.0.0.1:\${PROXY_HTTPS_PORT:-8443}/slot1/v1/models -H \"X-API-Key: <PROXY_API_KEY>\""

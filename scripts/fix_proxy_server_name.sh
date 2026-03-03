@@ -47,6 +47,8 @@ if [[ -z "${TARGET_IP}" ]]; then
 fi
 
 API_KEY="$(awk -F= '$1=="PROXY_API_KEY" {print $2; exit}' "${ENV_FILE}" || true)"
+PROXY_PORT="$(awk -F= '$1=="PROXY_HTTPS_PORT" {print $2; exit}' "${ENV_FILE}" || true)"
+PROXY_PORT="${PROXY_PORT:-8443}"
 if [[ -z "${API_KEY}" || "${API_KEY}" == "CHANGE-THIS-STRONG-KEY" ]]; then
   echo "PROXY_API_KEY is missing/placeholder in .env. Set it first." >&2
   exit 1
@@ -71,10 +73,10 @@ docker compose logs --tail=80 proxy-gateway || true
 
 echo "[5/5] Health checks"
 echo "- localhost:"
-curl -k -sS "https://localhost:443/slot1/health" -H "X-API-Key: ${API_KEY}" || true
+curl -k -sS "https://localhost:${PROXY_PORT}/slot1/health" -H "X-API-Key: ${API_KEY}" || true
 echo
 echo "- ${TARGET_IP}:"
-curl -k -sS "https://${TARGET_IP}:443/slot1/health" -H "X-API-Key: ${API_KEY}" || true
+curl -k -sS "https://${TARGET_IP}:${PROXY_PORT}/slot1/health" -H "X-API-Key: ${API_KEY}" || true
 echo
 
 echo "Done."

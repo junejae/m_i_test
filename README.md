@@ -218,12 +218,12 @@ Endpoints:
 - `http://localhost:${PORT_6:-8106}/v1`
 
 External HTTPS endpoints via proxy:
-- `https://<SERVER_IP>/slot1/v1/...`
-- `https://<SERVER_IP>/slot2/v1/...`
-- `https://<SERVER_IP>/slot3/v1/...`
-- `https://<SERVER_IP>/slot4/v1/...`
-- `https://<SERVER_IP>/slot5/v1/...`
-- `https://<SERVER_IP>/slot6/v1/...`
+- `https://<SERVER_IP>:8443/slot1/v1/...`
+- `https://<SERVER_IP>:8443/slot2/v1/...`
+- `https://<SERVER_IP>:8443/slot3/v1/...`
+- `https://<SERVER_IP>:8443/slot4/v1/...`
+- `https://<SERVER_IP>:8443/slot5/v1/...`
+- `https://<SERVER_IP>:8443/slot6/v1/...`
 
 Health checks:
 
@@ -331,8 +331,8 @@ docker compose up -d proxy-gateway
 Test from remote client (self-signed cert default, so `-k` is used):
 
 ```bash
-curl -k -sS https://<SERVER_IP>/slot1/health -H "X-API-Key: your-strong-random-key"
-curl -k -sS https://<SERVER_IP>/slot1/v1/models -H "X-API-Key: your-strong-random-key"
+curl -k -sS https://<SERVER_IP>:8443/slot1/health -H "X-API-Key: your-strong-random-key"
+curl -k -sS https://<SERVER_IP>:8443/slot1/v1/models -H "X-API-Key: your-strong-random-key"
 ```
 
 If you see `tlsv1 alert internal error`, regenerate proxy cert and recreate proxy:
@@ -373,7 +373,7 @@ Options:
 Example chat completion through proxy:
 
 ```bash
-curl -k -sS https://<SERVER_IP>/slot1/v1/chat/completions \
+curl -k -sS https://<SERVER_IP>:8443/slot1/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-strong-random-key" \
   -d '{
