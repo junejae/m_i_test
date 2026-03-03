@@ -86,6 +86,15 @@ MIG_TARGET_GPU_INDEX=1 ./scripts/print_mig_uuid_env.sh
 
 Copy output values into `.env` for `MIG_UUID_1` ~ `MIG_UUID_6`.
 
+If `.env` was accidentally overwritten from `.env.example`, recover MIG UUIDs automatically:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/recover_env_mig_uuid.sh
+MIG_TARGET_GPU_INDEX=1 ./scripts/recover_env_mig_uuid.sh
+docker compose up -d
+```
+
 ## 3) Start inference services
 
 ```bash
