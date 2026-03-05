@@ -283,6 +283,35 @@ chmod +x scripts/tune_slot6_safe_profile.sh
 ./scripts/tune_slot6_safe_profile.sh
 ```
 
+For recurring slot6 runtime faults, run auto-recovery guard (watchdog):
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/start_slot6_guard.sh scripts/stop_slot6_guard.sh scripts/status_slot6_guard.sh scripts/guard_slot6_autorecover.sh
+./scripts/start_slot6_guard.sh
+./scripts/status_slot6_guard.sh
+```
+
+Stop watchdog:
+
+```bash
+./scripts/stop_slot6_guard.sh
+```
+
+Tuning knobs (optional):
+
+```bash
+CHECK_INTERVAL=20 \
+COOLDOWN_SECONDS=120 \
+MAX_RESTARTS_PER_HOUR=6 \
+HEALTH_FAIL_THRESHOLD=3 \
+./scripts/start_slot6_guard.sh
+```
+
+Watchdog logs:
+- `logs/slot6-guard/guard.log`
+- `logs/slot6-guard/guard.stdout.log`
+
 Health checks:
 
 ```bash
