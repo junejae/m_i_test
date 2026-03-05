@@ -126,13 +126,13 @@ External access should go through `proxy-gateway` on HTTPS 443.
 If you hit `Engine core initialization failed`, reduce memory pressure in `.env` first:
 
 ```bash
-MAX_MODEL_LEN_1=1024
+MAX_MODEL_LEN_1=2048
 MAX_MODEL_LEN_2=1024
 MAX_NUM_SEQS_1=1
 MAX_NUM_SEQS_2=1
-MAX_NUM_BATCHED_TOKENS_1=512
+MAX_NUM_BATCHED_TOKENS_1=2048
 MAX_NUM_BATCHED_TOKENS_2=512
-GPU_MEMORY_UTILIZATION_1=0.9
+GPU_MEMORY_UTILIZATION_1=0.90
 GPU_MEMORY_UTILIZATION_2=0.9
 VLLM_EXTRA_ARGS_1=--swap-space 8 --enforce-eager
 VLLM_EXTRA_ARGS_2=--swap-space 24 --cpu-offload-gb 12 --enforce-eager
@@ -187,19 +187,33 @@ ASR_LANGUAGE_5=ko
 For `Qwen/Qwen3-TTS-12Hz-1.7B-Base` specifically, this profile is a good starting point:
 
 ```bash
-MAX_MODEL_LEN_6=512
+MAX_MODEL_LEN_6=256
 MAX_NUM_SEQS_6=1
-MAX_NUM_BATCHED_TOKENS_6=256
-GPU_MEMORY_UTILIZATION_6=0.8
-VLLM_EXTRA_ARGS_6=--swap-space 16 --cpu-offload-gb 8
+MAX_NUM_BATCHED_TOKENS_6=64
+GPU_MEMORY_UTILIZATION_6=0.70
+VLLM_EXTRA_ARGS_6=--swap-space 8 --enforce-eager
 ```
 
 If slot 6 still shows `EngineCore encountered an issue` on TTS requests, reduce generation budget first:
 
 ```bash
-MAX_MODEL_LEN_6=384
-MAX_NUM_BATCHED_TOKENS_6=128
-GPU_MEMORY_UTILIZATION_6=0.75
+MAX_MODEL_LEN_6=192
+MAX_NUM_BATCHED_TOKENS_6=48
+GPU_MEMORY_UTILIZATION_6=0.65
+```
+
+If you need larger context for slot1 (Gemma), apply context profile script:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/tune_slot1_context_profile.sh
+./scripts/tune_slot1_context_profile.sh 4096
+```
+
+Experimental (may fail on small MIG slices):
+
+```bash
+./scripts/tune_slot1_context_profile.sh 8192
 ```
 
 If logs show `model type qwen3_tts` architecture errors on slot 6, verify you are running the Omni image:

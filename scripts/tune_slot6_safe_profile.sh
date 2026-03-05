@@ -17,7 +17,11 @@ set_kv() {
   local key="$1"
   local val="$2"
   if grep -qE "^${key}=" "${ENV_FILE}"; then
-    sed -i '' -E "s|^${key}=.*$|${key}=${val}|" "${ENV_FILE}"
+    if sed --version >/dev/null 2>&1; then
+      sed -i -E "s|^${key}=.*$|${key}=${val}|" "${ENV_FILE}"
+    else
+      sed -i '' -E "s|^${key}=.*$|${key}=${val}|" "${ENV_FILE}"
+    fi
   else
     printf "\n%s=%s\n" "${key}" "${val}" >> "${ENV_FILE}"
   fi
