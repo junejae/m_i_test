@@ -46,6 +46,12 @@ server {
         proxy_pass http://mig-vllm-6:8000;
     }
 
+    location /slot7/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot7/(.*)$ /$1 break;
+        proxy_pass http://mig-diffusion-7:8000;
+    }
+
     location / {
         return 404;
     }

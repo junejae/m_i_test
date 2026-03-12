@@ -88,13 +88,13 @@ UUID_LINES="$(
 )"
 
 UUID_COUNT="$(printf "%s\n" "${UUID_LINES}" | grep -c '^MIG_UUID_[0-9]\+=MIG-' || true)"
-if [[ "${UUID_COUNT}" -lt 6 ]]; then
-  echo "Need at least 6 MIG UUIDs on GPU ${MIG_TARGET_GPU_INDEX}, found ${UUID_COUNT}" >&2
+if [[ "${UUID_COUNT}" -lt 7 ]]; then
+  echo "Need at least 7 MIG UUIDs on GPU ${MIG_TARGET_GPU_INDEX}, found ${UUID_COUNT}" >&2
   printf "%s\n" "${UUID_LINES}" >&2
   exit 1
 fi
 
-for i in 1 2 3 4 5 6; do
+for i in 1 2 3 4 5 6 7; do
   key="MIG_UUID_${i}"
   val="$(printf "%s\n" "${UUID_LINES}" | awk -F= -v k="${key}" '$1==k {print $2; exit}')"
   if [[ -z "${val}" ]]; then
@@ -107,7 +107,7 @@ upsert_env "MIG_TARGET_GPU_INDEX" "${MIG_TARGET_GPU_INDEX}"
 ensure_proxy_api_key
 
 echo "[2/3] Validating .env MIG keys"
-for i in 1 2 3 4 5 6; do
+for i in 1 2 3 4 5 6 7; do
   key="MIG_UUID_${i}"
   value="$(awk -F= -v k="${key}" '$1==k {print $2; exit}' "${ENV_FILE}")"
   if [[ "${value}" == MIG-REPLACE-WITH-* || -z "${value}" ]]; then
@@ -117,7 +117,7 @@ for i in 1 2 3 4 5 6; do
 done
 
 echo "[3/3] Updated ${ENV_FILE}"
-grep -E '^MIG_TARGET_GPU_INDEX=|^MIG_UUID_[1-6]=' "${ENV_FILE}" || true
+grep -E '^MIG_TARGET_GPU_INDEX=|^MIG_UUID_[1-7]=' "${ENV_FILE}" || true
 if grep -q '^PROXY_API_KEY=' "${ENV_FILE}"; then
   key_len="$(awk -F= '$1=="PROXY_API_KEY" {print length($2); exit}' "${ENV_FILE}")"
   echo "PROXY_API_KEY=*** (length=${key_len})"

@@ -76,8 +76,8 @@ UUID_LINES="$(
 )"
 
 UUID_COUNT="$(printf "%s\n" "${UUID_LINES}" | grep -c '^MIG_UUID_[0-9]\+=MIG-' || true)"
-if [[ "${UUID_COUNT}" -lt 6 ]]; then
-  echo "Need at least 6 MIG UUIDs on GPU ${MIG_TARGET_GPU_INDEX}, found ${UUID_COUNT}" >&2
+if [[ "${UUID_COUNT}" -lt 7 ]]; then
+  echo "Need at least 7 MIG UUIDs on GPU ${MIG_TARGET_GPU_INDEX}, found ${UUID_COUNT}" >&2
   echo "Current output:" >&2
   printf "%s\n" "${UUID_LINES}" >&2
   exit 1
@@ -89,14 +89,15 @@ UUID3="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_3=/{print $2; exit}
 UUID4="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_4=/{print $2; exit}')"
 UUID5="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_5=/{print $2; exit}')"
 UUID6="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_6=/{print $2; exit}')"
+UUID7="$(printf "%s\n" "${UUID_LINES}" | awk -F= '/^MIG_UUID_7=/{print $2; exit}')"
 
-if [[ -z "${UUID1}" || -z "${UUID2}" || -z "${UUID3}" || -z "${UUID4}" || -z "${UUID5}" || -z "${UUID6}" ]]; then
-  echo "Failed to parse MIG_UUID_1..MIG_UUID_6" >&2
+if [[ -z "${UUID1}" || -z "${UUID2}" || -z "${UUID3}" || -z "${UUID4}" || -z "${UUID5}" || -z "${UUID6}" || -z "${UUID7}" ]]; then
+  echo "Failed to parse MIG_UUID_1..MIG_UUID_7" >&2
   printf "%s\n" "${UUID_LINES}" >&2
   exit 1
 fi
 
-echo "[3/4] Updating .env with MIG_UUID_1..MIG_UUID_6"
+echo "[3/4] Updating .env with MIG_UUID_1..MIG_UUID_7"
 upsert_env "MIG_TARGET_GPU_INDEX" "${MIG_TARGET_GPU_INDEX}"
 upsert_env "MIG_UUID_1" "${UUID1}"
 upsert_env "MIG_UUID_2" "${UUID2}"
@@ -104,6 +105,7 @@ upsert_env "MIG_UUID_3" "${UUID3}"
 upsert_env "MIG_UUID_4" "${UUID4}"
 upsert_env "MIG_UUID_5" "${UUID5}"
 upsert_env "MIG_UUID_6" "${UUID6}"
+upsert_env "MIG_UUID_7" "${UUID7}"
 
 echo "Updated ${ENV_FILE}:"
 grep '^MIG_TARGET_GPU_INDEX=' "${ENV_FILE}" || true
@@ -113,6 +115,7 @@ grep '^MIG_UUID_3=' "${ENV_FILE}" || true
 grep '^MIG_UUID_4=' "${ENV_FILE}" || true
 grep '^MIG_UUID_5=' "${ENV_FILE}" || true
 grep '^MIG_UUID_6=' "${ENV_FILE}" || true
+grep '^MIG_UUID_7=' "${ENV_FILE}" || true
 
 if [[ "${SKIP_COMPOSE_UP}" == "1" ]]; then
   echo "[4/4] SKIP_COMPOSE_UP=1, skipping docker compose up"
