@@ -5,12 +5,13 @@ H100 2-GPU host template for MIG-based multi-inference with Docker Compose.
 This template assumes:
 - `GPU 0`: already used by another workload (for example an existing full-GPU vLLM server)
 - `GPU 1`: partitioned with MIG, then each MIG slice runs one independent vLLM server container
-- `mig-vllm-1`: `google/gemma-3-4b-it` (text-focused config)
+- `mig-vllm-1`: `Qwen/Qwen3.5-4B` (text + tool-calling config on vLLM 0.17.0)
 - `mig-vllm-2`: `Qwen/Qwen3-VL-8B-Instruct` (vision-language config)
 - `mig-vllm-3`: `dragonkue/BGE-m3-ko` (embedding-focused config)
 - `mig-vllm-4`: `Dongjin-kr/ko-reranker` (reranker-focused config)
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 - `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
+- `mig-diffusion-7`: `runwayml/stable-diffusion-v1-5` (small diffusion image generation)
 - `proxy-gateway`: Nginx HTTPS reverse proxy on 443 with `X-API-Key` auth
 
 ## Prerequisites
@@ -85,6 +86,7 @@ MIG_TARGET_GPU_INDEX=1 ./scripts/print_mig_uuid_env.sh
 ```
 
 Copy output values into `.env` for `MIG_UUID_1` ~ `MIG_UUID_6`.
+If using slot 7 as well, fill `MIG_UUID_7`.
 
 If `.env` was accidentally overwritten from `.env.example`, recover MIG UUIDs automatically:
 
@@ -202,7 +204,7 @@ MAX_NUM_BATCHED_TOKENS_6=48
 GPU_MEMORY_UTILIZATION_6=0.65
 ```
 
-If you need larger context for slot1 (Gemma), apply context profile script:
+If you need larger context for slot1 (Qwen3.5-4B), apply context profile script:
 
 ```bash
 cd /Users/junejae/workspace/m_i_test
@@ -230,6 +232,7 @@ Endpoints:
 - `http://localhost:${PORT_4:-8104}/v1`
 - `http://localhost:${PORT_5:-8105}/v1`
 - `http://localhost:${PORT_6:-8106}/v1`
+- `http://localhost:${PORT_7:-8107}/v1`
 
 External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot1/v1/...`
@@ -238,6 +241,7 @@ External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot4/v1/...`
 - `https://<SERVER_IP>:8443/slot5/v1/...`
 - `https://<SERVER_IP>:8443/slot6/v1/...`
+- `https://<SERVER_IP>:8443/slot7/v1/...`
 
 Quick external sharing without network/NAT changes (Cloudflare quick tunnel):
 
@@ -253,6 +257,56 @@ Use it as:
 ```bash
 TUNNEL_URL="$(./scripts/show_public_tunnel_url.sh)"
 curl -sS "$TUNNEL_URL/slot1/health" -H "X-API-Key: ${PROXY_API_KEY}"
+```
+
+Slot1 is pinned to `vllm/vllm-openai:v0.17.0` by default because `Qwen/Qwen3.5-4B` tool calling needs `vLLM >= 0.17.0`.
+The default slot1 flags also enable server-side tool calling:
+
+```bash
+VLLM_OPENAI_IMAGE_1=vllm/vllm-openai:v0.17.0
+MODEL_1=Qwen/Qwen3.5-4B
+SERVED_MODEL_NAME_1=qwen3.5-4b
+VLLM_EXTRA_ARGS_1=--swap-space 8 --enforce-eager --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
+```
+
+Slot1 tool-calling example:
+
+```bash
+curl -k -sS https://<SERVER_IP>:8443/slot1/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-strong-random-key" \
+  -d '{
+    "model": "qwen3.5-4b",
+    "messages": [
+      {"role": "user", "content": "서울 날씨를 조회하고 요약해줘."}
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Return current weather by city name",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {"type": "string"}
+            },
+            "required": ["city"]
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto",
+    "max_tokens": 256
+  }'
+```
+
+Patch an existing `.env` in place for slot1 without replacing other values:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/patch_slot1_qwen35_env.sh
+./scripts/patch_slot1_qwen35_env.sh
 ```
 
 Stop tunnel:
@@ -325,13 +379,13 @@ curl -fsS http://localhost:${PORT_6:-8106}/health
 
 ## 4) Quick test requests
 
-Gemma 3 (text):
+Qwen3.5-4B (text, tool calling ready):
 
 ```bash
 curl -sS http://localhost:${PORT_1:-8101}/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemma3-4b-it",
+    "model": "qwen3.5-4b",
     "messages": [{"role": "user", "content": "한 줄로 자기소개 해줘."}]
   }'
 ```
@@ -383,6 +437,20 @@ Qwen3-TTS-12Hz-1.7B-Base (model load check):
 
 ```bash
 curl -sS http://localhost:${PORT_6:-8106}/v1/models
+```
+
+Stable Diffusion v1.5 (image generation):
+
+```bash
+curl -sS http://localhost:${PORT_7:-8107}/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "a small robot reading a book, clean illustration",
+    "height": 512,
+    "width": 512,
+    "num_inference_steps": 20,
+    "guidance_scale": 7.5
+  }'
 ```
 
 If ASR image dependencies changed, rebuild only slot 5:
@@ -464,7 +532,7 @@ curl -k -sS https://<SERVER_IP>:8443/slot1/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-strong-random-key" \
   -d '{
-    "model": "gemma3-4b-it",
+    "model": "qwen3.5-4b",
     "messages": [{"role": "user", "content": "한 줄 소개해줘."}]
   }'
 ```
@@ -519,6 +587,6 @@ STRICT_LOG_SCAN=0 ./scripts/smoke_test_all_services.sh
 
 - This stack does not allocate or touch `GPU 0`.
 - `mig-vllm-1` to `mig-vllm-4` use `--tensor-parallel-size 1` for MIG-isolated inference.
-- `gemma-3-4b-it` 사용 전 Hugging Face에서 모델 사용 약관 동의가 필요할 수 있습니다.
+- `Qwen/Qwen3.5-4B`는 slot1에서 `vLLM >= 0.17.0`과 `--reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder` 조합을 기본 사용합니다.
 - `HUGGING_FACE_HUB_TOKEN`을 `.env`에 설정해야 private/gated 모델 pull이 가능합니다.
 - If MIG layout changes or host reboots, MIG UUIDs can change. Re-run UUID extraction and update `.env`.

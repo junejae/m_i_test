@@ -29,13 +29,15 @@ PORT_3="${PORT_3:-8103}"
 PORT_4="${PORT_4:-8104}"
 PORT_5="${PORT_5:-8105}"
 PORT_6="${PORT_6:-8106}"
+PORT_7="${PORT_7:-8107}"
 
-MODEL_1_NAME="${SERVED_MODEL_NAME_1:-gemma3-4b-it}"
+MODEL_1_NAME="${SERVED_MODEL_NAME_1:-qwen3.5-4b}"
 MODEL_2_NAME="${SERVED_MODEL_NAME_2:-qwen3-vl-8b-instruct}"
 MODEL_3_NAME="${SERVED_MODEL_NAME_3:-bge-m3-ko}"
 MODEL_4_NAME="${SERVED_MODEL_NAME_4:-ko-reranker}"
 MODEL_6_NAME="${SERVED_MODEL_NAME_6:-qwen3-tts-12hz-1.7b-base}"
 ASR_MODEL_NAME="${ASR_MODEL_5:-large-v3}"
+DIFFUSION_MODEL_NAME="${DIFFUSION_MODEL_7:-runwayml/stable-diffusion-v1-5}"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -159,6 +161,12 @@ run_json_test \
   "choices"
 
 run_json_test \
+  "slot1-tool-calling" \
+  "http://127.0.0.1:${PORT_1}/v1/chat/completions" \
+  "{\"model\":\"${MODEL_1_NAME}\",\"messages\":[{\"role\":\"user\",\"content\":\"날씨 조회 함수를 반드시 호출해. 도시는 서울로 해.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"Return current weather by city name\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}}],\"tool_choice\":\"required\",\"max_tokens\":256}" \
+  "tool_calls"
+
+run_json_test \
   "slot2-vl-chat" \
   "http://127.0.0.1:${PORT_2}/v1/chat/completions" \
   "{\"model\":\"${MODEL_2_NAME}\",\"messages\":[{\"role\":\"user\",\"content\":\"텍스트만으로 헬스체크 응답해줘.\"}],\"max_tokens\":32}" \
@@ -217,6 +225,30 @@ if [[ "${ASR_CODE}" == "200" ]] && [[ "$(json_has_key "${ASR_OUT}" "text")" == "
 else
   print_fail "slot5-asr (HTTP ${ASR_CODE})"
   sed -n '1,8p' "${ASR_OUT}" 2>/dev/null || true
+fi
+
+DIFF_MODELS_OUT="${OUT_DIR}/responses/slot7-diffusion-models.json"
+DIFF_MODELS_CODE="$(curl -sS -o "${DIFF_MODELS_OUT}" -w "%{http_code}" \
+  -D "${OUT_DIR}/headers/slot7-diffusion-models.hdr" \
+  "http://127.0.0.1:${PORT_7}/v1/models" || true)"
+if [[ "${DIFF_MODELS_CODE}" == "200" ]] && [[ "$(json_has_key "${DIFF_MODELS_OUT}" "data")" == "1" ]]; then
+  print_ok "slot7-diffusion-models"
+else
+  print_fail "slot7-diffusion-models (HTTP ${DIFF_MODELS_CODE})"
+  sed -n '1,8p' "${DIFF_MODELS_OUT}" 2>/dev/null || true
+fi
+
+DIFF_OUT="${OUT_DIR}/responses/slot7-diffusion.json"
+DIFF_CODE="$(curl -sS -o "${DIFF_OUT}" -w "%{http_code}" \
+  -D "${OUT_DIR}/headers/slot7-diffusion.hdr" \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\":\"a tiny house in a forest, simple illustration\",\"height\":512,\"width\":512,\"num_inference_steps\":10,\"guidance_scale\":7.0,\"num_images\":1}" \
+  "http://127.0.0.1:${PORT_7}/v1/images/generations" || true)"
+if [[ "${DIFF_CODE}" == "200" ]] && [[ "$(json_has_key "${DIFF_OUT}" "b64_json")" == "1" ]]; then
+  print_ok "slot7-diffusion-generate"
+else
+  print_fail "slot7-diffusion-generate (HTTP ${DIFF_CODE})"
+  sed -n '1,8p' "${DIFF_OUT}" 2>/dev/null || true
 fi
 
 # TTS endpoint: expect audio bytes on success.
@@ -309,7 +341,7 @@ else
   sed -n '1,10p' "${TTS_HDR}" 2>/dev/null || true
 fi
 
-SERVICES=(mig-vllm-1 mig-vllm-2 mig-vllm-3 mig-vllm-4 mig-asr-5 mig-vllm-6)
+SERVICES=(mig-vllm-1 mig-vllm-2 mig-vllm-3 mig-vllm-4 mig-asr-5 mig-vllm-6 mig-diffusion-7)
 for svc in "${SERVICES[@]}"; do
   docker compose logs --since "${RUN_START_ISO}" "${svc}" > "${OUT_DIR}/docker/${svc}.log" 2>&1 || true
 done
