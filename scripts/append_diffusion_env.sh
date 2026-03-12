@@ -35,7 +35,6 @@ fi
 
 append_if_missing "MIG_UUID_7" "MIG-REPLACE-WITH-UUID-7"
 append_if_missing "PORT_7" "8107"
-append_if_missing "PORT_7_UI" "7867"
 append_if_missing "DIFFUSION_MODEL_7" "runwayml/stable-diffusion-v1-5"
 append_if_missing "DIFFUSION_DEVICE_7" "cuda"
 append_if_missing "DIFFUSION_DTYPE_7" "float16"
@@ -45,9 +44,6 @@ append_if_missing "DIFFUSION_DEFAULT_STEPS_7" "20"
 append_if_missing "DIFFUSION_DEFAULT_GUIDANCE_7" "7.5"
 append_if_missing "DIFFUSION_NEGATIVE_PROMPT_7" "blurry,low-quality,distorted"
 append_if_missing "DIFFUSION_ENABLE_CPU_OFFLOAD_7" "0"
-append_if_missing "DIFFUSION_API_URL_7" "http://mig-diffusion-7:8000"
-append_if_missing "DIFFUSION_UI_ROOT_PATH_7" "/slot7-ui"
-append_if_missing "DIFFUSION_UI_TIMEOUT_7" "300"
 
 echo
 echo "Done. Current diffusion-related keys:"

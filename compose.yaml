@@ -203,27 +203,6 @@ services:
     ports:
       - "${API_BIND_HOST:-127.0.0.1}:${PORT_7}:8000"
 
-  mig-diffusion-ui-7:
-    build:
-      context: ./diffusion-ui
-    container_name: mig-diffusion-ui-7
-    environment:
-      DIFFUSION_API_URL: ${DIFFUSION_API_URL_7:-http://mig-diffusion-7:8000}
-      DIFFUSION_UI_ROOT_PATH: ${DIFFUSION_UI_ROOT_PATH_7:-/slot7-ui}
-      DIFFUSION_MODEL_NAME: ${DIFFUSION_MODEL_7}
-      DIFFUSION_UI_PORT: 7860
-      DIFFUSION_UI_TIMEOUT: ${DIFFUSION_UI_TIMEOUT_7:-300}
-    depends_on:
-      - mig-diffusion-7
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/', timeout=5)"]
-      interval: 20s
-      timeout: 5s
-      retries: 15
-    ports:
-      - "${API_BIND_HOST:-127.0.0.1}:${PORT_7_UI:-7867}:7860"
-
   proxy-gateway:
     image: nginx:1.27-alpine
     container_name: proxy-gateway
@@ -235,7 +214,6 @@ services:
       - mig-asr-5
       - mig-vllm-6
       - mig-diffusion-7
-      - mig-diffusion-ui-7
     environment:
       PROXY_API_KEY: ${PROXY_API_KEY:-}
     volumes:

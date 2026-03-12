@@ -12,7 +12,6 @@ This template assumes:
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 - `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
 - `mig-diffusion-7`: `runwayml/stable-diffusion-v1-5` (small diffusion image generation)
-- `mig-diffusion-ui-7`: Gradio Web UI for slot7 diffusion testing
 - `proxy-gateway`: Nginx HTTPS reverse proxy on 443 with `X-API-Key` auth
 
 ## Prerequisites
@@ -234,7 +233,6 @@ Endpoints:
 - `http://localhost:${PORT_5:-8105}/v1`
 - `http://localhost:${PORT_6:-8106}/v1`
 - `http://localhost:${PORT_7:-8107}/v1`
-- `http://localhost:${PORT_7_UI:-7867}/`
 
 External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot1/v1/...`
@@ -244,7 +242,6 @@ External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot5/v1/...`
 - `https://<SERVER_IP>:8443/slot6/v1/...`
 - `https://<SERVER_IP>:8443/slot7/v1/...`
-- `https://<SERVER_IP>:8443/slot7-ui/`
 
 Quick external sharing without network/NAT changes (Cloudflare quick tunnel):
 
@@ -456,29 +453,34 @@ curl -sS http://localhost:${PORT_7:-8107}/v1/images/generations \
   }'
 ```
 
-Stable Diffusion Web UI (Gradio):
+Local Gradio tester that runs on your machine and calls the remote diffusion server:
 
 ```bash
-docker compose up -d --build mig-diffusion-7 mig-diffusion-ui-7
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/run_remote_diffusion_gradio.sh
+REMOTE_DIFFUSION_BASE_URL=https://pty-metadata-ltd-loving.trycloudflare.com \
+./scripts/run_remote_diffusion_gradio.sh
 ```
 
-Local access:
+Then open:
 
 ```bash
-open http://127.0.0.1:${PORT_7_UI:-7867}/
+http://127.0.0.1:7868
 ```
 
-Proxy/tunnel access:
+Optional overrides:
 
 ```bash
-https://<SERVER_IP>:8443/slot7-ui/
+REMOTE_DIFFUSION_BASE_URL=https://<your-tunnel-or-server> \
+REMOTE_DIFFUSION_API_KEY=<PROXY_API_KEY> \
+REMOTE_DIFFUSION_GRADIO_PORT=7868 \
+REMOTE_DIFFUSION_TIMEOUT=300 \
+./scripts/run_remote_diffusion_gradio.sh
 ```
 
-or through the Cloudflare quick tunnel:
+Sample prompt sets for diffusion validation:
 
-```bash
-https://<random>.trycloudflare.com/slot7-ui/
-```
+- [diffusion_prompt_sets.md](/Users/junejae/workspace/m_i_test/diffusion_prompt_sets.md)
 
 If ASR image dependencies changed, rebuild only slot 5:
 
