@@ -12,6 +12,7 @@ This template assumes:
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 - `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
 - `mig-diffusion-7`: `runwayml/stable-diffusion-v1-5` (small diffusion image generation)
+- `mig-diffusion-ui-7`: Gradio Web UI for slot7 diffusion testing
 - `proxy-gateway`: Nginx HTTPS reverse proxy on 443 with `X-API-Key` auth
 
 ## Prerequisites
@@ -233,6 +234,7 @@ Endpoints:
 - `http://localhost:${PORT_5:-8105}/v1`
 - `http://localhost:${PORT_6:-8106}/v1`
 - `http://localhost:${PORT_7:-8107}/v1`
+- `http://localhost:${PORT_7_UI:-7867}/`
 
 External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot1/v1/...`
@@ -242,6 +244,7 @@ External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot5/v1/...`
 - `https://<SERVER_IP>:8443/slot6/v1/...`
 - `https://<SERVER_IP>:8443/slot7/v1/...`
+- `https://<SERVER_IP>:8443/slot7-ui/`
 
 Quick external sharing without network/NAT changes (Cloudflare quick tunnel):
 
@@ -451,6 +454,30 @@ curl -sS http://localhost:${PORT_7:-8107}/v1/images/generations \
     "num_inference_steps": 20,
     "guidance_scale": 7.5
   }'
+```
+
+Stable Diffusion Web UI (Gradio):
+
+```bash
+docker compose up -d --build mig-diffusion-7 mig-diffusion-ui-7
+```
+
+Local access:
+
+```bash
+open http://127.0.0.1:${PORT_7_UI:-7867}/
+```
+
+Proxy/tunnel access:
+
+```bash
+https://<SERVER_IP>:8443/slot7-ui/
+```
+
+or through the Cloudflare quick tunnel:
+
+```bash
+https://<random>.trycloudflare.com/slot7-ui/
 ```
 
 If ASR image dependencies changed, rebuild only slot 5:
