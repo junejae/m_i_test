@@ -146,15 +146,30 @@ Then recreate:
 docker compose up -d --force-recreate
 ```
 
-For `Qwen/Qwen3-VL-8B-Instruct` specifically, this profile is safer on small MIG slices:
+For `Qwen/Qwen3-VL-8B-Instruct` specifically, the current default target is OCR/VL with extended context on a small MIG slice:
 
 ```bash
-MAX_MODEL_LEN_2=768
+MAX_MODEL_LEN_2=2048
 MAX_NUM_SEQS_2=1
-MAX_NUM_BATCHED_TOKENS_2=256
-GPU_MEMORY_UTILIZATION_2=0.9
+MAX_NUM_BATCHED_TOKENS_2=1024
+GPU_MEMORY_UTILIZATION_2=0.92
 VLLM_EXTRA_ARGS_2=--swap-space 24 --cpu-offload-gb 12 --enforce-eager
 MM_IMAGE_LIMIT_2=1
+```
+
+If slot2 becomes unstable, step down in this order:
+
+```bash
+./scripts/tune_slot2_context_profile.sh 1536
+./scripts/tune_slot2_context_profile.sh 1024
+```
+
+To apply the current aggressive profile directly:
+
+```bash
+cd /Users/junejae/workspace/m_i_test
+chmod +x scripts/tune_slot2_context_profile.sh
+./scripts/tune_slot2_context_profile.sh 2048
 ```
 
 For `dragonkue/BGE-m3-ko` specifically, this profile is a good starting point:
