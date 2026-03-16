@@ -1,0 +1,9 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+httpx==0.28.1
+pyahocorasick==2.1.0
+presidio-analyzer==2.2.355
+regex==2025.7.34
+prometheus-client==0.22.1
+detoxify==0.5.2
+torch==2.8.0

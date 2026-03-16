@@ -10,10 +10,18 @@ server {
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
 
-    location /slot1/ {
+    location = /slot1/health {
         if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
         rewrite ^/slot1/(.*)$ /$1 break;
         proxy_pass http://mig-vllm-1:8000;
+    }
+
+    location /slot1/ {
+        if ($http_x_api_key != "${PROXY_API_KEY}") { return 401; }
+        rewrite ^/slot1/(.*)$ /$1 break;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_pass http://guardrails-proxy:8000;
     }
 
     location /slot2/ {

@@ -1,0 +1,9 @@
+{
+  "prompt_injection_patterns": [
+    "ignore\\s+(all\\s+)?previous\\s+instructions",
+    "reveal\\s+(the\\s+)?system\\s+prompt",
+    "show\\s+(the\\s+)?developer\\s+message",
+    "bypass\\s+(all\\s+)?safety",
+    "act\\s+as\\s+system"
+  ]
+}
