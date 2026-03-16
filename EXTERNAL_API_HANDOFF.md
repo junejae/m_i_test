@@ -19,6 +19,7 @@ cd /Users/junejae/workspace/m_i_test
 |---|---|
 | 공통 헤더 | `X-API-Key: <PROXY_API_KEY>` |
 | JSON API 헤더 | `Content-Type: application/json` |
+| Guardrails Admin API 추가 헤더 | `X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>` |
 
 보안 주의:
 - API 키는 문서에 평문 기록 금지
@@ -40,6 +41,32 @@ Guardrails note:
 - Slot1 external requests now pass through `guardrails-proxy`
 - `POST /slot1/v1/chat/completions` can return guardrail block responses before the model server is called
 - `GET /slot1/health` still bypasses guardrails
+
+## 3.1) Guardrails Admin
+
+| 항목 | 값 |
+|---|---|
+| UI 경로 | `/guardrails-admin/?api_key=<PROXY_API_KEY>` |
+| API 경로 prefix | `/guardrails-admin/` |
+| 필요 키 1 | `PROXY_API_KEY` |
+| 필요 키 2 | `GUARDRAILS_ADMIN_API_KEY` |
+
+운영 규칙:
+- 브라우저 첫 진입은 `?api_key=<PROXY_API_KEY>` query string으로 UI 셸에 접근
+- UI 내부의 읽기/쓰기 호출은 `X-API-Key` 와 `X-Admin-API-Key`를 함께 사용
+- 별도 `guardrails-proxy` 호스트 포트는 외부에 노출하지 않음
+
+관리 API 목록:
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `GET` | `/guardrails-admin/config` | 현재 guardrails 설정/정책 조회 |
+| `PUT` | `/guardrails-admin/config` | 설정/정책 저장 + 런타임 reload |
+| `GET` | `/guardrails-admin/blocklist` | blocklist 조회 |
+| `PUT` | `/guardrails-admin/blocklist` | blocklist 저장 + 런타임 reload |
+| `GET` | `/guardrails-admin/golden-set` | golden set 조회 |
+| `PUT` | `/guardrails-admin/golden-set` | golden set 저장 + 런타임 reload |
+| `POST` | `/guardrails-admin/reload` | 파일 기준 런타임 reload |
 
 ## 4) Parameter List (요청 파라미터)
 
@@ -254,6 +281,15 @@ Slot1 주의:
 | `200 + empty tool_calls` | 함수 호출이 안 나옴 | `tool_choice` 누락 또는 프롬프트 불충분 | `tool_choice=required` 또는 명시적 지시 사용 |
 | `200 + reasoning field visible` | 응답 본문에 reasoning 포함 | server-side reasoning parser 활성화 | downstream 파서에서 무시 또는 별도 처리 |
 
+### 6.7 Guardrails Admin
+
+| 코드/패턴 | 원인 | 조치 |
+|---|---|---|
+| `401 Unauthorized` | `X-API-Key` 누락/오류 | `PROXY_API_KEY` 확인 |
+| `401 Unauthorized` | `X-Admin-API-Key` 누락/오류 | `GUARDRAILS_ADMIN_API_KEY` 확인 |
+| `404 Not Found` | 예전 proxy-gateway/guardrails-proxy 이미지 사용 중 | 최신 compose로 재배포 |
+| `503 Service Unavailable` | admin API key 미설정 | `.env`에 `GUARDRAILS_ADMIN_API_KEY` 설정 후 재기동 |
+
 ### 6.6 Diffusion (slot7)
 
 | 코드/패턴 | 대표 메시지 | 원인 | 조치 |
@@ -376,3 +412,4 @@ curl -sS "$BASE/slot7/v1/images/generations" \
 6. slot6 TTS는 `task_type=Base` 규격 유지
 7. TTS는 HTTP 코드 + JSON error 여부 + WAV 시그니처를 함께 점검
 8. slot7 diffusion은 우선 `512x512`, `20 steps`, `num_images=1`로 검증
+9. guardrails-admin UI 경로와 slot1 차단 케이스(`reveal the system prompt`)를 함께 확인
