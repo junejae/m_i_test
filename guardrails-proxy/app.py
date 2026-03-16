@@ -495,14 +495,23 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse(get_runtime().metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 
-@app.get("/admin", response_class=HTMLResponse)
-async def admin_ui(request: Request) -> HTMLResponse:
+async def _render_admin_ui(request: Request) -> HTMLResponse:
     settings = get_settings()
     if not settings.admin_ui_enabled:
         raise HTTPException(status_code=404, detail="Admin UI disabled")
     base_path = request.headers.get("X-Forwarded-Prefix", "").strip() or request.url.path.rstrip("/")
     proxy_api_key = request.query_params.get("api_key", "")
     return HTMLResponse(render_admin_html(base_path=base_path, proxy_api_key=proxy_api_key))
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_ui(request: Request) -> HTMLResponse:
+    return await _render_admin_ui(request)
+
+
+@app.get("/admin/", response_class=HTMLResponse)
+async def admin_ui_slash(request: Request) -> HTMLResponse:
+    return await _render_admin_ui(request)
 
 
 @app.get("/admin/config")

@@ -181,3 +181,12 @@ async def test_admin_ui_renders_when_enabled() -> None:
     assert 'const adminBasePath = "/guardrails-admin"' in response.text
     assert 'const initialProxyApiKey = "proxy-secret"' in response.text
     assert 'document.getElementById("proxy-key").value = initialProxyApiKey;' in response.text
+
+
+@pytest.mark.anyio
+async def test_admin_ui_with_trailing_slash_renders() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/admin/?api_key=proxy-secret", headers={"X-Forwarded-Prefix": "/guardrails-admin"})
+    assert response.status_code == 200
+    assert "Guardrails Admin" in response.text
