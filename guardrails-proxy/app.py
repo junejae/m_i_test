@@ -13,8 +13,8 @@ from threading import Lock
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 try:
     import ahocorasick  # type: ignore
@@ -36,6 +36,32 @@ except ImportError:  # pragma: no cover
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("guardrails-proxy")
+
+MUTABLE_SETTING_FIELDS = {
+    "analyzer_timeout_seconds",
+    "phase1_enabled",
+    "phase2_enabled",
+    "phase3_enabled",
+    "phase4_enabled",
+    "phase2_mode",
+    "phase3_mode",
+    "fail_open_on_analyzer_timeout",
+    "output_semantic_non_stream_only",
+    "relevance_enabled",
+    "toxicity_enabled",
+    "pii_enabled",
+    "max_input_chars",
+    "max_stream_input_chars",
+    "max_tool_count",
+    "max_message_count",
+    "max_non_stream_output_chars",
+    "rate_limit_window_seconds",
+    "rate_limit_max_requests",
+    "output_blocklist_enforce",
+    "toxicity_safe_threshold",
+    "toxicity_danger_threshold",
+    "relevance_safe_threshold",
+}
 
 
 @dataclass
@@ -71,6 +97,11 @@ class GuardrailsSettings:
     toxicity_danger_threshold: float = float(os.getenv("GUARDRAILS_TOXICITY_DANGER_THRESHOLD", "0.7"))
     relevance_safe_threshold: float = float(os.getenv("GUARDRAILS_RELEVANCE_SAFE_THRESHOLD", "0.5"))
     metrics_enabled: bool = os.getenv("GUARDRAILS_METRICS_ENABLED", "1") == "1"
+    admin_api_key: str = os.getenv("GUARDRAILS_ADMIN_API_KEY", "")
+    admin_ui_enabled: bool = os.getenv("GUARDRAILS_ADMIN_UI_ENABLED", "1") == "1"
+
+    def admin_settings_payload(self) -> dict[str, Any]:
+        return {field_name: getattr(self, field_name) for field_name in sorted(MUTABLE_SETTING_FIELDS)}
 
 
 @dataclass
@@ -324,6 +355,63 @@ class GuardrailsRuntime:
             return fallback
 
 
+def load_json_file(path_str: str, fallback: Any) -> Any:
+    path = Path(path_str)
+    if not path.exists():
+        return fallback
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Failed to load JSON file %s: %s", path, exc)
+        return fallback
+
+
+def write_json_file(path_str: str, payload: Any) -> None:
+    path = Path(path_str)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def write_lines_file(path_str: str, values: list[str]) -> None:
+    path = Path(path_str)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = [value.strip() for value in values if value.strip()]
+    path.write_text("\n".join(normalized) + ("\n" if normalized else ""), encoding="utf-8")
+
+
+def build_settings_from_sources(base_settings: Optional[GuardrailsSettings] = None) -> GuardrailsSettings:
+    base_settings = base_settings or GuardrailsSettings()
+    policy = load_json_file(base_settings.config_path, {})
+    overrides = policy.get("settings_overrides", {}) if isinstance(policy, dict) else {}
+    merged = {}
+    for field_name in GuardrailsSettings.__dataclass_fields__:
+        merged[field_name] = getattr(base_settings, field_name)
+    for field_name, value in overrides.items():
+        if field_name in MUTABLE_SETTING_FIELDS:
+            merged[field_name] = coerce_setting_value(field_name, value, merged[field_name])
+    return GuardrailsSettings(**merged)
+
+
+def coerce_setting_value(field_name: str, value: Any, current_value: Any) -> Any:
+    if isinstance(current_value, bool):
+        if not isinstance(value, bool):
+            raise ValueError(f"{field_name} must be a boolean")
+        return value
+    if isinstance(current_value, int) and not isinstance(current_value, bool):
+        if not isinstance(value, int):
+            raise ValueError(f"{field_name} must be an integer")
+        return value
+    if isinstance(current_value, float):
+        if not isinstance(value, (int, float)):
+            raise ValueError(f"{field_name} must be numeric")
+        return float(value)
+    if isinstance(current_value, str):
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name} must be a string")
+        return value
+    raise ValueError(f"{field_name} has unsupported type")
+
+
 def read_lines(path_str: str) -> list[str]:
     path = Path(path_str)
     if not path.exists():
@@ -340,16 +428,16 @@ def cosine_similarity(lhs: list[float], rhs: list[float]) -> float:
     return numerator / (lhs_norm * rhs_norm)
 
 
-settings = GuardrailsSettings()
-runtime = GuardrailsRuntime(settings)
 app = FastAPI(title="Guardrails Proxy", version="0.1.0")
 app.state.test_transport = None
 app.state.http_client = None
+app.state.settings = build_settings_from_sources()
+app.state.runtime = GuardrailsRuntime(app.state.settings)
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    app.state.http_client = build_http_client()
+    await reload_runtime_state()
 
 
 @app.on_event("shutdown")
@@ -359,8 +447,28 @@ async def shutdown() -> None:
         await client.aclose()
 
 
+def get_settings() -> GuardrailsSettings:
+    return getattr(app.state, "settings")
+
+
+def get_runtime() -> GuardrailsRuntime:
+    return getattr(app.state, "runtime")
+
+
+async def reload_runtime_state() -> None:
+    old_client: Optional[httpx.AsyncClient] = getattr(app.state, "http_client", None)
+    if old_client is not None:
+        await old_client.aclose()
+    current_settings: Optional[GuardrailsSettings] = getattr(app.state, "settings", None)
+    settings = build_settings_from_sources(current_settings)
+    app.state.settings = settings
+    app.state.runtime = GuardrailsRuntime(settings)
+    app.state.http_client = build_http_client()
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    settings = get_settings()
     upstream_ok = False
     error = None
     try:
@@ -384,11 +492,96 @@ async def health() -> dict[str, Any]:
 
 @app.get("/metrics")
 async def metrics() -> PlainTextResponse:
-    return PlainTextResponse(runtime.metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
+    return PlainTextResponse(get_runtime().metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_ui() -> HTMLResponse:
+    settings = get_settings()
+    if not settings.admin_ui_enabled:
+        raise HTTPException(status_code=404, detail="Admin UI disabled")
+    return HTMLResponse(render_admin_html())
+
+
+@app.get("/admin/config")
+async def admin_get_config(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    return JSONResponse(content=serialize_admin_config())
+
+
+@app.put("/admin/config")
+async def admin_put_config(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    settings_payload = payload.get("settings", {})
+    policy_payload = payload.get("policy", {})
+    if not isinstance(settings_payload, dict) or not isinstance(policy_payload, dict):
+        raise HTTPException(status_code=400, detail="settings and policy must be JSON objects")
+
+    current_settings = get_settings()
+    validated_settings = {}
+    for field_name, value in settings_payload.items():
+        if field_name not in MUTABLE_SETTING_FIELDS:
+            raise HTTPException(status_code=400, detail=f"Unsupported setting field: {field_name}")
+        validated_settings[field_name] = coerce_setting_value(field_name, value, getattr(current_settings, field_name))
+
+    persisted_policy = dict(policy_payload)
+    persisted_policy["settings_overrides"] = validated_settings
+    write_json_file(current_settings.config_path, persisted_policy)
+    await reload_runtime_state()
+    return JSONResponse(content=serialize_admin_config())
+
+
+@app.get("/admin/blocklist")
+async def admin_get_blocklist(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    settings = get_settings()
+    return JSONResponse(content={"terms": read_lines(settings.blocklist_path)})
+
+
+@app.put("/admin/blocklist")
+async def admin_put_blocklist(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    terms = payload.get("terms", [])
+    if not isinstance(terms, list) or any(not isinstance(term, str) for term in terms):
+        raise HTTPException(status_code=400, detail="terms must be an array of strings")
+    settings = get_settings()
+    write_lines_file(settings.blocklist_path, terms)
+    await reload_runtime_state()
+    return JSONResponse(content={"terms": read_lines(get_settings().blocklist_path)})
+
+
+@app.get("/admin/golden-set")
+async def admin_get_golden_set(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    settings = get_settings()
+    return JSONResponse(content={"items": load_json_file(settings.golden_set_path, [])})
+
+
+@app.put("/admin/golden-set")
+async def admin_put_golden_set(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="items must be an array")
+    settings = get_settings()
+    write_json_file(settings.golden_set_path, items)
+    await reload_runtime_state()
+    return JSONResponse(content={"items": load_json_file(get_settings().golden_set_path, [])})
+
+
+@app.post("/admin/reload")
+async def admin_reload(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    await reload_runtime_state()
+    return JSONResponse(content={"status": "reloaded", **serialize_admin_config()})
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy(path: str, request: Request) -> Response:
+    runtime = get_runtime()
     runtime.metrics.inc_request()
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     method = request.method.upper()
@@ -407,6 +600,7 @@ async def proxy(path: str, request: Request) -> Response:
 
 
 async def handle_chat_completions(request: Request, target_path: str, request_id: str) -> Response:
+    runtime = get_runtime()
     started_at = time.perf_counter()
     try:
         payload = await request.json()
@@ -468,6 +662,7 @@ async def handle_chat_completions(request: Request, target_path: str, request_id
 
 
 async def passthrough_request(request: Request, target_path: str) -> Response:
+    settings = get_settings()
     body = await request.body()
     response = await get_http_client().request(
         request.method,
@@ -491,6 +686,7 @@ async def stream_upstream_response(
     audit: dict[str, Any],
     started_at: float,
 ) -> Response:
+    settings = get_settings()
     client = get_http_client()
     stream_context = client.stream(
         request.method,
@@ -526,6 +722,8 @@ async def non_stream_upstream_response(
     audit: dict[str, Any],
     started_at: float,
 ) -> Response:
+    settings = get_settings()
+    runtime = get_runtime()
     upstream_started = time.perf_counter()
     upstream_response = await get_http_client().request(
         request.method,
@@ -563,6 +761,7 @@ async def non_stream_upstream_response(
 
 
 def normalize_chat_payload(payload: dict[str, Any], text_segments: list[str]) -> dict[str, Any]:
+    settings = get_settings()
     messages = payload.get("messages")
     if not isinstance(messages, list) or not messages:
         raise ValueError("messages must be a non-empty array")
@@ -607,6 +806,8 @@ def normalize_chat_payload(payload: dict[str, Any], text_segments: list[str]) ->
 
 
 async def run_phase2_input_checks(text: str, request_id: str) -> dict[str, Any]:
+    settings = get_settings()
+    runtime = get_runtime()
     if not settings.phase2_enabled or not text.strip():
         return {"mode": settings.phase2_mode, "pii": {}, "toxicity": {}, "relevance": {}, "timeouts": [], "errors": []}
 
@@ -647,6 +848,8 @@ async def run_phase2_input_checks(text: str, request_id: str) -> dict[str, Any]:
 
 
 async def run_output_checks(content: bytes, request_id: str) -> dict[str, Any]:
+    settings = get_settings()
+    runtime = get_runtime()
     try:
         payload = json.loads(content)
     except Exception:
@@ -671,6 +874,8 @@ async def run_output_checks(content: bytes, request_id: str) -> dict[str, Any]:
 
 
 def run_phase1_input_checks(payload: dict[str, Any], input_text: str, stream: bool, rate_key: str) -> dict[str, Any]:
+    settings = get_settings()
+    runtime = get_runtime()
     if not settings.phase1_enabled:
         return {"action": "pass", "reason_code": None, "detail": "phase1_disabled"}
     if is_rate_limited(rate_key):
@@ -691,6 +896,8 @@ def run_phase1_input_checks(payload: dict[str, Any], input_text: str, stream: bo
 
 
 def is_rate_limited(rate_key: str) -> bool:
+    settings = get_settings()
+    runtime = get_runtime()
     now = time.time()
     window = settings.rate_limit_window_seconds
     with runtime.rate_limit_lock:
@@ -704,6 +911,7 @@ def is_rate_limited(rate_key: str) -> bool:
 
 
 def run_phase3_decision(phase2_result: dict[str, Any]) -> dict[str, Any]:
+    settings = get_settings()
     if not settings.phase3_enabled:
         return {"action": "pass", "decision": "phase3_disabled", "reason_code": None}
     pii_results = phase2_result.get("pii", {}).get("results", [])
@@ -747,6 +955,178 @@ def filtered_response_headers(headers: Any) -> dict[str, str]:
     return {key: value for key, value in headers.items() if key.lower() not in excluded}
 
 
+def require_admin_api_key(request: Request) -> None:
+    settings = get_settings()
+    expected = settings.admin_api_key.strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Admin API key is not configured")
+    actual = request.headers.get("X-Admin-API-Key", "").strip()
+    if actual != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin API key")
+
+
+async def parse_admin_json(request: Request) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request payload must be a JSON object")
+    return payload
+
+
+def serialize_admin_config() -> dict[str, Any]:
+    settings = get_settings()
+    runtime = get_runtime()
+    policy = dict(runtime.config)
+    policy.pop("settings_overrides", None)
+    return {
+        "settings": settings.admin_settings_payload(),
+        "policy": policy,
+    }
+
+
+def render_admin_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Guardrails Admin</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; max-width: 1100px; }
+    textarea { width: 100%; min-height: 180px; font-family: monospace; }
+    input[type=password] { width: 360px; }
+    .row { margin-bottom: 20px; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    .status { white-space: pre-wrap; padding: 12px; background: #f5f5f5; border: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <h1>Guardrails Admin</h1>
+  <p>Read/write operations call the authenticated admin API. Enter <code>X-Admin-API-Key</code> below.</p>
+  <div class="row">
+    <label>Admin API Key <input id="admin-key" type="password" placeholder="X-Admin-API-Key"></label>
+  </div>
+  <div class="actions">
+    <button onclick="loadAll()">Load</button>
+    <button onclick="saveConfig()">Save Config</button>
+    <button onclick="saveBlocklist()">Save Blocklist</button>
+    <button onclick="saveGoldenSet()">Save Golden Set</button>
+    <button onclick="reloadRuntime()">Reload Runtime</button>
+  </div>
+  <div class="row">
+    <h2>Config</h2>
+    <textarea id="config-editor"></textarea>
+  </div>
+  <div class="row">
+    <h2>Blocklist</h2>
+    <textarea id="blocklist-editor"></textarea>
+  </div>
+  <div class="row">
+    <h2>Golden Set</h2>
+    <textarea id="golden-set-editor"></textarea>
+  </div>
+  <div class="row">
+    <h2>Status</h2>
+    <div id="status" class="status">Idle</div>
+  </div>
+  <script>
+    function adminHeaders() {
+      return {
+        "Content-Type": "application/json",
+        "X-Admin-API-Key": document.getElementById("admin-key").value
+      };
+    }
+    function setStatus(message) {
+      document.getElementById("status").textContent = message;
+    }
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const text = await response.text();
+      let body = {};
+      try { body = text ? JSON.parse(text) : {}; } catch (_) { body = { raw: text }; }
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}\\n${JSON.stringify(body, null, 2)}`);
+      }
+      return body;
+    }
+    async function loadAll() {
+      try {
+        const [config, blocklist, goldenSet] = await Promise.all([
+          fetchJson('/admin/config', { headers: adminHeaders() }),
+          fetchJson('/admin/blocklist', { headers: adminHeaders() }),
+          fetchJson('/admin/golden-set', { headers: adminHeaders() })
+        ]);
+        document.getElementById('config-editor').value = JSON.stringify(config, null, 2);
+        document.getElementById('blocklist-editor').value = (blocklist.terms || []).join('\\n');
+        document.getElementById('golden-set-editor').value = JSON.stringify(goldenSet.items || [], null, 2);
+        setStatus('Loaded config, blocklist, and golden set.');
+      } catch (error) {
+        setStatus(String(error));
+      }
+    }
+    async function saveConfig() {
+      try {
+        const payload = JSON.parse(document.getElementById('config-editor').value);
+        const response = await fetchJson('/admin/config', {
+          method: 'PUT',
+          headers: adminHeaders(),
+          body: JSON.stringify(payload)
+        });
+        document.getElementById('config-editor').value = JSON.stringify(response, null, 2);
+        setStatus('Config saved.');
+      } catch (error) {
+        setStatus(String(error));
+      }
+    }
+    async function saveBlocklist() {
+      try {
+        const terms = document.getElementById('blocklist-editor').value
+          .split('\\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const response = await fetchJson('/admin/blocklist', {
+          method: 'PUT',
+          headers: adminHeaders(),
+          body: JSON.stringify({ terms })
+        });
+        document.getElementById('blocklist-editor').value = (response.terms || []).join('\\n');
+        setStatus('Blocklist saved.');
+      } catch (error) {
+        setStatus(String(error));
+      }
+    }
+    async function saveGoldenSet() {
+      try {
+        const items = JSON.parse(document.getElementById('golden-set-editor').value);
+        const response = await fetchJson('/admin/golden-set', {
+          method: 'PUT',
+          headers: adminHeaders(),
+          body: JSON.stringify({ items })
+        });
+        document.getElementById('golden-set-editor').value = JSON.stringify(response.items || [], null, 2);
+        setStatus('Golden set saved.');
+      } catch (error) {
+        setStatus(String(error));
+      }
+    }
+    async function reloadRuntime() {
+      try {
+        const response = await fetchJson('/admin/reload', {
+          method: 'POST',
+          headers: adminHeaders()
+        });
+        document.getElementById('config-editor').value = JSON.stringify(response, null, 2);
+        setStatus('Runtime reloaded.');
+      } catch (error) {
+        setStatus(String(error));
+      }
+    }
+  </script>
+</body>
+</html>"""
+
+
 def blocked_response(reason_code: str, request_id: str, status_code: int, detail: str) -> JSONResponse:
     payload = {
         "error": {
@@ -766,7 +1146,7 @@ def normalize_text(text: str) -> str:
 
 def build_http_client() -> httpx.AsyncClient:
     transport = getattr(app.state, "test_transport", None)
-    return httpx.AsyncClient(timeout=settings.request_timeout_seconds, transport=transport)
+    return httpx.AsyncClient(timeout=get_settings().request_timeout_seconds, transport=transport)
 
 
 def get_http_client() -> httpx.AsyncClient:

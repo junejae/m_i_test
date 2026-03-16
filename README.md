@@ -303,7 +303,31 @@ GUARDRAILS_PHASE2_MODE=observe
 GUARDRAILS_PHASE3_MODE=observe
 GUARDRAILS_RELEVANCE_ENABLED=0
 GUARDRAILS_OUTPUT_SEMANTIC_NON_STREAM_ONLY=1
+GUARDRAILS_ADMIN_API_KEY=CHANGE-THIS-ADMIN-KEY
+GUARDRAILS_ADMIN_UI_ENABLED=1
 ```
+
+Guardrails admin interface:
+
+```bash
+# read current config
+curl -sS http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin/config \
+  -H "X-Admin-API-Key: ${GUARDRAILS_ADMIN_API_KEY}"
+
+# update blocklist
+curl -sS -X PUT http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin/blocklist \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-API-Key: ${GUARDRAILS_ADMIN_API_KEY}" \
+  -d '{"terms":["ignore previous instructions","bypass all safety","new forbidden phrase"]}'
+```
+
+Open this URL in a browser to use the admin UI shell:
+
+```text
+http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin
+```
+
+The UI shell is unauthenticated so you can load it in a browser. All read/write admin API calls still require `X-Admin-API-Key`.
 
 Slot1 tool-calling example:
 
