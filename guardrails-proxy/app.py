@@ -496,11 +496,13 @@ async def metrics() -> PlainTextResponse:
 
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_ui() -> HTMLResponse:
+async def admin_ui(request: Request) -> HTMLResponse:
     settings = get_settings()
     if not settings.admin_ui_enabled:
         raise HTTPException(status_code=404, detail="Admin UI disabled")
-    return HTMLResponse(render_admin_html())
+    base_path = request.headers.get("X-Forwarded-Prefix", "").strip() or request.url.path.rstrip("/")
+    proxy_api_key = request.query_params.get("api_key", "")
+    return HTMLResponse(render_admin_html(base_path=base_path, proxy_api_key=proxy_api_key))
 
 
 @app.get("/admin/config")
@@ -986,8 +988,10 @@ def serialize_admin_config() -> dict[str, Any]:
     }
 
 
-def render_admin_html() -> str:
-    return """<!doctype html>
+def render_admin_html(base_path: str, proxy_api_key: str) -> str:
+    safe_base_path = json.dumps(base_path or "/admin")
+    safe_proxy_api_key = json.dumps(proxy_api_key or "")
+    html = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -1004,6 +1008,9 @@ def render_admin_html() -> str:
 <body>
   <h1>Guardrails Admin</h1>
   <p>Read/write operations call the authenticated admin API. Enter <code>X-Admin-API-Key</code> below.</p>
+  <div class="row">
+    <label>Proxy API Key <input id="proxy-key" type="password" placeholder="X-API-Key"></label>
+  </div>
   <div class="row">
     <label>Admin API Key <input id="admin-key" type="password" placeholder="X-Admin-API-Key"></label>
   </div>
@@ -1031,10 +1038,19 @@ def render_admin_html() -> str:
     <div id="status" class="status">Idle</div>
   </div>
   <script>
+    const adminBasePath = __ADMIN_BASE_PATH__;
+    const initialProxyApiKey = __INITIAL_PROXY_API_KEY__;
+    document.getElementById("proxy-key").value = initialProxyApiKey;
+
+    function endpoint(path) {{
+      const prefix = adminBasePath.endsWith('/') ? adminBasePath : `${{adminBasePath}}/`;
+      return `${{prefix}}${{path}}`;
+    }}
     function adminHeaders() {
       return {
         "Content-Type": "application/json",
-        "X-Admin-API-Key": document.getElementById("admin-key").value
+        "X-Admin-API-Key": document.getElementById("admin-key").value,
+        "X-API-Key": document.getElementById("proxy-key").value
       };
     }
     function setStatus(message) {
@@ -1053,9 +1069,9 @@ def render_admin_html() -> str:
     async function loadAll() {
       try {
         const [config, blocklist, goldenSet] = await Promise.all([
-          fetchJson('/admin/config', { headers: adminHeaders() }),
-          fetchJson('/admin/blocklist', { headers: adminHeaders() }),
-          fetchJson('/admin/golden-set', { headers: adminHeaders() })
+          fetchJson(endpoint('config'), { headers: adminHeaders() }),
+          fetchJson(endpoint('blocklist'), { headers: adminHeaders() }),
+          fetchJson(endpoint('golden-set'), { headers: adminHeaders() })
         ]);
         document.getElementById('config-editor').value = JSON.stringify(config, null, 2);
         document.getElementById('blocklist-editor').value = (blocklist.terms || []).join('\\n');
@@ -1068,7 +1084,7 @@ def render_admin_html() -> str:
     async function saveConfig() {
       try {
         const payload = JSON.parse(document.getElementById('config-editor').value);
-        const response = await fetchJson('/admin/config', {
+        const response = await fetchJson(endpoint('config'), {
           method: 'PUT',
           headers: adminHeaders(),
           body: JSON.stringify(payload)
@@ -1085,7 +1101,7 @@ def render_admin_html() -> str:
           .split('\\n')
           .map((line) => line.trim())
           .filter(Boolean);
-        const response = await fetchJson('/admin/blocklist', {
+        const response = await fetchJson(endpoint('blocklist'), {
           method: 'PUT',
           headers: adminHeaders(),
           body: JSON.stringify({ terms })
@@ -1099,7 +1115,7 @@ def render_admin_html() -> str:
     async function saveGoldenSet() {
       try {
         const items = JSON.parse(document.getElementById('golden-set-editor').value);
-        const response = await fetchJson('/admin/golden-set', {
+        const response = await fetchJson(endpoint('golden-set'), {
           method: 'PUT',
           headers: adminHeaders(),
           body: JSON.stringify({ items })
@@ -1112,7 +1128,7 @@ def render_admin_html() -> str:
     }
     async function reloadRuntime() {
       try {
-        const response = await fetchJson('/admin/reload', {
+        const response = await fetchJson(endpoint('reload'), {
           method: 'POST',
           headers: adminHeaders()
         });
@@ -1125,6 +1141,7 @@ def render_admin_html() -> str:
   </script>
 </body>
 </html>"""
+    return html.replace("__ADMIN_BASE_PATH__", safe_base_path).replace("__INITIAL_PROXY_API_KEY__", safe_proxy_api_key)
 
 
 def blocked_response(reason_code: str, request_id: str, status_code: int, detail: str) -> JSONResponse:

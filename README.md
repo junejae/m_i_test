@@ -311,12 +311,14 @@ Guardrails admin interface:
 
 ```bash
 # read current config
-curl -sS http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin/config \
+curl -k -sS https://<SERVER_IP>:${PROXY_HTTPS_PORT:-8443}/guardrails-admin/config \
+  -H "X-API-Key: ${PROXY_API_KEY}" \
   -H "X-Admin-API-Key: ${GUARDRAILS_ADMIN_API_KEY}"
 
 # update blocklist
-curl -sS -X PUT http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin/blocklist \
+curl -k -sS -X PUT https://<SERVER_IP>:${PROXY_HTTPS_PORT:-8443}/guardrails-admin/blocklist \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: ${PROXY_API_KEY}" \
   -H "X-Admin-API-Key: ${GUARDRAILS_ADMIN_API_KEY}" \
   -d '{"terms":["ignore previous instructions","bypass all safety","new forbidden phrase"]}'
 ```
@@ -324,10 +326,10 @@ curl -sS -X PUT http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin/blocklist \
 Open this URL in a browser to use the admin UI shell:
 
 ```text
-http://127.0.0.1:${GUARDRAILS_PORT:-8111}/admin
+https://<tunnel-domain>/guardrails-admin/?api_key=<PROXY_API_KEY>
 ```
 
-The UI shell is unauthenticated so you can load it in a browser. All read/write admin API calls still require `X-Admin-API-Key`.
+`guardrails-proxy` no longer publishes a separate host port. Use `/guardrails-admin/` through `proxy-gateway` or the Cloudflare tunnel. The first browser hit can carry the existing proxy key as a query string, and the UI will reuse it for subsequent admin API calls. All read/write admin API mutations still require `GUARDRAILS_ADMIN_API_KEY`.
 
 Slot1 tool-calling example:
 

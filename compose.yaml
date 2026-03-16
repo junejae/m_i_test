@@ -248,8 +248,6 @@ services:
       interval: 20s
       timeout: 5s
       retries: 15
-    ports:
-      - "${API_BIND_HOST:-127.0.0.1}:${GUARDRAILS_PORT:-8111}:8000"
 
   proxy-gateway:
     image: nginx:1.27-alpine
