@@ -55,6 +55,8 @@ Guardrails note:
 - 브라우저 첫 진입은 `?api_key=<PROXY_API_KEY>` query string으로 UI 셸에 접근
 - UI 내부의 읽기/쓰기 호출은 `X-API-Key` 와 `X-Admin-API-Key`를 함께 사용
 - 별도 `guardrails-proxy` 호스트 포트는 외부에 노출하지 않음
+- UI는 raw JSON만 보여주는 형태가 아니라 preset + typed form 기반
+- 기본 preset은 `Standard-lite (Recommended)` 사용 권장
 
 관리 API 목록:
 
@@ -67,6 +69,18 @@ Guardrails note:
 | `GET` | `/guardrails-admin/golden-set` | golden set 조회 |
 | `PUT` | `/guardrails-admin/golden-set` | golden set 저장 + 런타임 reload |
 | `POST` | `/guardrails-admin/reload` | 파일 기준 런타임 reload |
+
+UI 필드 가이드:
+
+| 섹션 | 핵심 필드 | 운영 가이드 |
+|---|---|---|
+| `Phases` | `phase1_enabled`, `phase2_mode`, `phase3_mode` | 초기 운영은 `Phase 1 enforce`, `Phase 2/3 observe` 유지 권장 |
+| `Thresholds & Timeouts` | `analyzer_timeout_seconds`, `toxicity_*`, `relevance_safe_threshold` | timeout을 너무 낮추면 fail-open 로그가 급증할 수 있음 |
+| `Limits` | `max_input_chars`, `max_stream_input_chars`, `rate_limit_*` | 긴 요청이 많으면 먼저 input limit부터 조정 |
+| `Analyzers` | `relevance_enabled`, `toxicity_enabled`, `pii_enabled` | relevance는 golden set 품질 검증 전까지 기본 OFF 유지 권장 |
+| `Prompt Injection Patterns` | regex list | 너무 넓은 패턴은 정상 요청 오탐을 유발 |
+| `Blocklist` | phrase list | exact phrase 위주로 운영, 과도한 일반어 추가 금지 |
+| `Golden Set` | `[{label,text}]` array | relevance 사용 시에만 의미 있음 |
 
 ## 4) Parameter List (요청 파라미터)
 

@@ -178,8 +178,13 @@ async def test_admin_ui_renders_when_enabled() -> None:
         response = await client.get("/admin?api_key=proxy-secret", headers={"X-Forwarded-Prefix": "/guardrails-admin"})
     assert response.status_code == 200
     assert "Guardrails Admin" in response.text
+    assert "Recommended Presets" in response.text
+    assert "Structured Settings" in response.text
+    assert "Thresholds & Timeouts" in response.text
+    assert "Prompt Injection Patterns" in response.text
     assert 'const adminBasePath = "/guardrails-admin"' in response.text
     assert 'const initialProxyApiKey = "proxy-secret"' in response.text
+    assert 'const uiSchema =' in response.text
     assert 'document.getElementById("proxy-key").value = initialProxyApiKey;' in response.text
 
 

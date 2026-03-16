@@ -331,6 +331,36 @@ https://<tunnel-domain>/guardrails-admin/?api_key=<PROXY_API_KEY>
 
 `guardrails-proxy` no longer publishes a separate host port. Use `/guardrails-admin/` through `proxy-gateway` or the Cloudflare tunnel. The first browser hit can carry the existing proxy key as a query string, and the UI will reuse it for subsequent admin API calls. All read/write admin API mutations still require `GUARDRAILS_ADMIN_API_KEY`.
 
+UI usage guide:
+- `Recommended Presets`
+  - `Standard-lite (Recommended)`: 현재 운영 기본값
+  - `Observe-only`: 차단보다 로그 수집에 집중
+  - `Strict trial`: 제한과 enforcement를 높인 시험용 프로파일
+- `Structured Settings`
+  - `Phases`: phase on/off 와 observe/enforce 모드
+  - `Thresholds & Timeouts`: analyzer timeout, toxicity/relevance threshold
+  - `Limits`: input/output/tool/message/rate limit
+  - `Analyzers`: relevance/toxicity/pii, output blocklist enforce
+- `Prompt Injection Patterns`
+  - 한 줄에 regex 하나
+  - 과도하게 넓은 정규식은 정상 요청까지 막을 수 있음
+- `Blocklist`
+  - 한 줄에 deterministic phrase 하나
+  - 먼저 exact phrase 위주로 관리
+- `Golden Set`
+  - `[{\"label\":\"...\",\"text\":\"...\"}]` 형태 JSON 배열
+  - relevance는 기본 OFF이므로, 실제 효과는 relevance enable 후 나타남
+- `Advanced JSON Preview`
+  - 저장 전에 실제 `PUT /guardrails-admin/config` payload를 미리 보여줌
+
+권장 운영 순서:
+1. `Load`
+2. `Standard-lite (Recommended)` preset 적용
+3. 필요한 필드만 수정
+4. `Save Structured Config`
+5. 필요 시 `Save Blocklist`, `Save Golden Set`
+6. 마지막에 `Reload Runtime`
+
 Slot1 tool-calling example:
 
 ```bash
