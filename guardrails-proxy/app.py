@@ -590,6 +590,149 @@ async def admin_reload(request: Request) -> JSONResponse:
     return JSONResponse(content={"status": "reloaded", **serialize_admin_config()})
 
 
+@app.get("/guardrails/health")
+async def guardrails_health() -> dict[str, Any]:
+    settings = get_settings()
+    runtime = get_runtime()
+    return {
+        "status": "ok",
+        "mode": "standalone-check-service",
+        "phase1_enabled": settings.phase1_enabled,
+        "phase2_enabled": settings.phase2_enabled,
+        "phase3_enabled": settings.phase3_enabled,
+        "phase4_enabled": settings.phase4_enabled,
+        "relevance_enabled": settings.relevance_enabled,
+        "blocklist_terms": len(runtime.blocklist.terms),
+        "golden_set_items": len(runtime.golden_set),
+        "upstream": settings.upstream_base_url,
+    }
+
+
+@app.post("/guardrails/input/check")
+async def guardrails_input_check(request: Request) -> JSONResponse:
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    try:
+        payload = await parse_standalone_json(request, request_id)
+        normalized = normalize_standalone_input_payload(payload)
+    except ValueError as exc:
+        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
+    result = await evaluate_input_guardrails(
+        normalized_payload=normalized["payload"],
+        input_text=normalized["input_text"],
+        stream=normalized["stream"],
+        rate_key=standalone_rate_key(request, payload),
+        request_id=request_id,
+        slot="guardrails-input",
+        path="/guardrails/input/check",
+    )
+    body = serialize_guardrails_result(
+        request_id=request_id,
+        stage="input",
+        result=result,
+        normalized={
+            "input_text": normalized["input_text"],
+            "stream": normalized["stream"],
+            "message_count": len(normalized["payload"].get("messages", [])),
+            "tool_count": len(normalized["payload"].get("tools", [])),
+        },
+        metadata=payload.get("metadata"),
+    )
+    return JSONResponse(status_code=200, content=body)
+
+
+@app.post("/guardrails/output/check")
+async def guardrails_output_check(request: Request) -> JSONResponse:
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    try:
+        payload = await parse_standalone_json(request, request_id)
+        normalized_text = extract_output_check_text(payload)
+    except ValueError as exc:
+        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
+    result = await evaluate_output_guardrails(
+        output_text=normalized_text,
+        request_id=request_id,
+        slot="guardrails-output",
+        path="/guardrails/output/check",
+    )
+    body = serialize_guardrails_result(
+        request_id=request_id,
+        stage="output",
+        result=result,
+        normalized={"text": normalized_text},
+        metadata=payload.get("metadata"),
+    )
+    return JSONResponse(status_code=200, content=body)
+
+
+@app.post("/guardrails/text/check")
+async def guardrails_text_check(request: Request) -> JSONResponse:
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    try:
+        payload = await parse_standalone_json(request, request_id)
+    except ValueError as exc:
+        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
+    direction = str(payload.get("direction", "input")).strip().lower()
+    if direction not in {"input", "output"}:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "message": "direction must be input or output",
+                    "type": "invalid_request_error",
+                    "code": "MALFORMED_INPUT",
+                    "param": "direction",
+                },
+                "request_id": request_id,
+            },
+        )
+    if direction == "input":
+        try:
+            normalized = normalize_standalone_input_payload(payload)
+        except ValueError as exc:
+            return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
+        result = await evaluate_input_guardrails(
+            normalized_payload=normalized["payload"],
+            input_text=normalized["input_text"],
+            stream=normalized["stream"],
+            rate_key=standalone_rate_key(request, payload),
+            request_id=request_id,
+            slot="guardrails-text-input",
+            path="/guardrails/text/check",
+        )
+        body = serialize_guardrails_result(
+            request_id=request_id,
+            stage="input",
+            result=result,
+            normalized={
+                "input_text": normalized["input_text"],
+                "stream": normalized["stream"],
+                "message_count": len(normalized["payload"].get("messages", [])),
+                "tool_count": len(normalized["payload"].get("tools", [])),
+            },
+            metadata=payload.get("metadata"),
+        )
+        return JSONResponse(status_code=200, content=body)
+
+    try:
+        normalized_text = extract_output_check_text(payload)
+    except ValueError as exc:
+        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
+    result = await evaluate_output_guardrails(
+        output_text=normalized_text,
+        request_id=request_id,
+        slot="guardrails-text-output",
+        path="/guardrails/text/check",
+    )
+    body = serialize_guardrails_result(
+        request_id=request_id,
+        stage="output",
+        result=result,
+        normalized={"text": normalized_text},
+        metadata=payload.get("metadata"),
+    )
+    return JSONResponse(status_code=200, content=body)
+
+
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy(path: str, request: Request) -> Response:
     runtime = get_runtime()
@@ -615,60 +758,33 @@ async def handle_chat_completions(request: Request, target_path: str, request_id
     started_at = time.perf_counter()
     try:
         payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Request payload must be a JSON object")
+        normalized = normalize_standalone_input_payload(payload)
+    except ValueError as exc:
+        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
     except Exception:
         return blocked_response("MALFORMED_INPUT", request_id, 400, detail="Request body must be valid JSON")
 
-    if not isinstance(payload, dict):
-        return blocked_response("MALFORMED_INPUT", request_id, 400, detail="Request payload must be a JSON object")
+    result = await evaluate_input_guardrails(
+        normalized_payload=normalized["payload"],
+        input_text=normalized["input_text"],
+        stream=normalized["stream"],
+        rate_key=standalone_rate_key(request, payload),
+        request_id=request_id,
+        slot="slot1",
+        path=target_path,
+    )
+    audit = result["audit"]
 
-    stream = bool(payload.get("stream", False))
-    text_segments: list[str] = []
-    try:
-        normalized_payload = normalize_chat_payload(payload, text_segments)
-    except ValueError as exc:
-        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
+    if result["action"] == "block":
+        return blocked_response(result["reason_code"], request_id, 400, detail=result["detail"])
 
-    input_text = "\n".join(segment for segment in text_segments if segment).strip()
-    client_host = request.client.host if request.client else "anonymous"
-    rate_key = request.headers.get("x-api-key") or client_host
-    phase1_result = run_phase1_input_checks(normalized_payload, input_text, stream, rate_key)
-    audit = {
-        "request_id": request_id,
-        "slot": "slot1",
-        "path": target_path,
-        "stream": stream,
-        "phase1": phase1_result,
-        "phase2": {},
-        "phase3": {},
-        "final_action": "pass",
-        "reason_code": None,
-        "upstream_latency_ms": None,
-        "guardrails_latency_ms": None,
-    }
-    runtime.metrics.inc_phase("phase1")
-
-    if phase1_result["action"] == "block":
-        audit["final_action"] = "block"
-        audit["reason_code"] = phase1_result["reason_code"]
-        runtime.metrics.inc_block(phase1_result["reason_code"])
-        runtime.metrics.inc_action("block")
-        log_audit(audit)
-        return blocked_response(phase1_result["reason_code"], request_id, 400, detail=phase1_result["detail"])
-
-    phase2_result = await run_phase2_input_checks(input_text, request_id)
-    audit["phase2"] = phase2_result
-    runtime.metrics.inc_phase("phase2")
-
-    phase3_result = run_phase3_decision(phase2_result)
-    audit["phase3"] = phase3_result
-    runtime.metrics.inc_phase("phase3")
-    runtime.metrics.inc_action(phase3_result["action"])
-
-    if stream:
-        response = await stream_upstream_response(request, normalized_payload, target_path, request_id, audit, started_at)
+    if normalized["stream"]:
+        response = await stream_upstream_response(request, normalized["payload"], target_path, request_id, audit, started_at)
         return response
 
-    response = await non_stream_upstream_response(request, normalized_payload, target_path, request_id, audit, started_at)
+    response = await non_stream_upstream_response(request, normalized["payload"], target_path, request_id, audit, started_at)
     return response
 
 
@@ -750,7 +866,7 @@ async def non_stream_upstream_response(
         and settings.output_semantic_non_stream_only
         and upstream_response.headers.get("content-type", "").startswith("application/json")
     ):
-        output_result = await run_output_checks(content, request_id)
+        output_result = await run_output_checks(content, request_id, slot=audit.get("slot", "slot1"), path=target_path)
         audit["output"] = output_result
         if output_result.get("action") == "block":
             audit["final_action"] = "block"
@@ -769,6 +885,268 @@ async def non_stream_upstream_response(
         headers=filtered_response_headers(upstream_response.headers),
         media_type=upstream_response.headers.get("content-type"),
     )
+
+
+def standalone_rate_key(request: Request, payload: dict[str, Any]) -> str:
+    explicit = payload.get("rate_limit_key")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    client_host = request.client.host if request.client else "anonymous"
+    return request.headers.get("x-api-key") or client_host
+
+
+async def parse_standalone_json(request: Request, request_id: str) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except Exception:
+        raise ValueError("Request body must be valid JSON")
+    if not isinstance(payload, dict):
+        raise ValueError("Request payload must be a JSON object")
+    return payload
+
+
+def normalize_standalone_input_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    messages = payload.get("messages")
+    text = payload.get("text")
+    role = str(payload.get("role", "user"))
+    tools = payload.get("tools", [])
+    stream = bool(payload.get("stream", False))
+    if messages is None:
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("messages or text must be provided")
+        messages = [{"role": role, "content": text}]
+    candidate_payload = {
+        "messages": messages,
+        "stream": stream,
+    }
+    if "tools" in payload:
+        candidate_payload["tools"] = tools
+    text_segments: list[str] = []
+    normalized_payload = normalize_chat_payload(candidate_payload, text_segments)
+    input_text = "\n".join(segment for segment in text_segments if segment).strip()
+    return {
+        "payload": normalized_payload,
+        "input_text": input_text,
+        "stream": stream,
+    }
+
+
+def extract_output_check_text(payload: dict[str, Any]) -> str:
+    if "response" in payload:
+        text = extract_assistant_text(payload.get("response"))
+        if not text:
+            raise ValueError("response did not contain assistant text")
+        return normalize_text(text)
+    text = payload.get("text")
+    if isinstance(text, str) and text.strip():
+        return normalize_text(text)
+    raise ValueError("text or response must be provided")
+
+
+async def evaluate_input_guardrails(
+    normalized_payload: dict[str, Any],
+    input_text: str,
+    stream: bool,
+    rate_key: str,
+    request_id: str,
+    slot: str,
+    path: str,
+) -> dict[str, Any]:
+    runtime = get_runtime()
+    runtime.metrics.inc_request()
+    phase1_result = run_phase1_input_checks(normalized_payload, input_text, stream, rate_key)
+    audit = {
+        "request_id": request_id,
+        "slot": slot,
+        "path": path,
+        "stream": stream,
+        "phase1": phase1_result,
+        "phase2": {},
+        "phase3": {},
+        "final_action": "allow",
+        "reason_code": None,
+        "upstream_latency_ms": None,
+        "guardrails_latency_ms": None,
+    }
+    runtime.metrics.inc_phase("phase1")
+
+    if phase1_result["action"] == "block":
+        audit["final_action"] = "block"
+        audit["reason_code"] = phase1_result["reason_code"]
+        runtime.metrics.inc_block(phase1_result["reason_code"])
+        runtime.metrics.inc_action("block")
+        log_audit(audit)
+        return {
+            "action": "block",
+            "reason_code": phase1_result["reason_code"],
+            "detail": phase1_result["detail"],
+            "phase1": phase1_result,
+            "phase2": {},
+            "phase3": {},
+            "audit": audit,
+        }
+
+    phase2_result = await run_phase2_input_checks(input_text, request_id)
+    audit["phase2"] = phase2_result
+    runtime.metrics.inc_phase("phase2")
+
+    phase3_result = run_phase3_decision(phase2_result)
+    audit["phase3"] = phase3_result
+    runtime.metrics.inc_phase("phase3")
+
+    final_action = resolve_semantic_action(
+        phase2_result=phase2_result,
+        phase3_result=phase3_result,
+        phase_mode=get_settings().phase3_mode,
+    )
+    audit["final_action"] = final_action["action"]
+    audit["reason_code"] = final_action["reason_code"]
+    runtime.metrics.inc_action(final_action["action"])
+    if final_action["action"] == "block" and final_action["reason_code"]:
+        runtime.metrics.inc_block(final_action["reason_code"])
+    if final_action["action"] != "allow":
+        log_audit(audit)
+    return {
+        "action": final_action["action"],
+        "reason_code": final_action["reason_code"],
+        "detail": final_action["detail"],
+        "phase1": phase1_result,
+        "phase2": phase2_result,
+        "phase3": phase3_result,
+        "audit": audit,
+    }
+
+
+async def evaluate_output_guardrails(
+    output_text: str,
+    request_id: str,
+    slot: str,
+    path: str,
+) -> dict[str, Any]:
+    settings = get_settings()
+    runtime = get_runtime()
+    runtime.metrics.inc_request()
+    audit = {
+        "request_id": request_id,
+        "slot": slot,
+        "path": path,
+        "stream": False,
+        "phase1": {},
+        "phase2": {},
+        "phase3": {},
+        "final_action": "allow",
+        "reason_code": None,
+        "upstream_latency_ms": None,
+        "guardrails_latency_ms": None,
+    }
+
+    if len(output_text) > settings.max_non_stream_output_chars:
+        reason_code = "OUTPUT_TOO_LONG"
+        audit["final_action"] = "block"
+        audit["reason_code"] = reason_code
+        runtime.metrics.inc_block(reason_code)
+        runtime.metrics.inc_action("block")
+        log_audit(audit)
+        return {
+            "action": "block",
+            "detail": "Output exceeded non-stream character limit",
+            "reason_code": reason_code,
+            "phase2": {},
+            "phase3": {},
+            "audit": audit,
+        }
+
+    matches = runtime.blocklist.find_matches(output_text)
+    if matches and settings.output_blocklist_enforce:
+        reason_code = "BLOCKLIST_MATCH"
+        audit["final_action"] = "block"
+        audit["reason_code"] = reason_code
+        runtime.metrics.inc_block(reason_code)
+        runtime.metrics.inc_action("block")
+        log_audit(audit)
+        return {
+            "action": "block",
+            "detail": f"Output matched blocklist terms: {', '.join(matches[:5])}",
+            "reason_code": reason_code,
+            "phase2": {},
+            "phase3": {},
+            "audit": audit,
+        }
+
+    phase2_result = await run_phase2_input_checks(output_text, request_id)
+    phase3_result = run_phase3_decision(phase2_result)
+    audit["phase2"] = phase2_result
+    audit["phase3"] = phase3_result
+    runtime.metrics.inc_phase("phase2")
+    runtime.metrics.inc_phase("phase3")
+
+    final_action = resolve_semantic_action(
+        phase2_result=phase2_result,
+        phase3_result=phase3_result,
+        phase_mode=settings.phase3_mode,
+    )
+    audit["final_action"] = final_action["action"]
+    audit["reason_code"] = final_action["reason_code"]
+    runtime.metrics.inc_action(final_action["action"])
+    if final_action["action"] == "block" and final_action["reason_code"]:
+        runtime.metrics.inc_block(final_action["reason_code"])
+    if final_action["action"] != "allow":
+        log_audit(audit)
+    return {
+        "action": final_action["action"],
+        "detail": final_action["detail"],
+        "reason_code": final_action["reason_code"],
+        "phase2": phase2_result,
+        "phase3": phase3_result,
+        "audit": audit,
+    }
+
+
+def resolve_semantic_action(phase2_result: dict[str, Any], phase3_result: dict[str, Any], phase_mode: str) -> dict[str, Any]:
+    if phase3_result["action"] == "gray":
+        if phase_mode == "enforce":
+            return {
+                "action": "block",
+                "reason_code": phase3_result["reason_code"] or "GRAY_ZONE",
+                "detail": f"Semantic guardrails enforced decision {phase3_result['decision']}",
+            }
+        return {
+            "action": "observe",
+            "reason_code": phase3_result["reason_code"],
+            "detail": f"Semantic guardrails observed decision {phase3_result['decision']}",
+        }
+    if phase2_result.get("timeouts"):
+        return {
+            "action": "allow",
+            "reason_code": "ANALYZER_TIMEOUT_OBSERVE",
+            "detail": f"Analyzer timeout observed for {', '.join(phase2_result['timeouts'])}",
+        }
+    return {
+        "action": "allow",
+        "reason_code": None,
+        "detail": "guardrails_allow",
+    }
+
+
+def serialize_guardrails_result(
+    request_id: str,
+    stage: str,
+    result: dict[str, Any],
+    normalized: dict[str, Any],
+    metadata: Any,
+) -> dict[str, Any]:
+    return {
+        "request_id": request_id,
+        "stage": stage,
+        "action": result["action"],
+        "reason_code": result.get("reason_code"),
+        "detail": result.get("detail"),
+        "phase1": result.get("phase1", {}),
+        "phase2": result.get("phase2", {}),
+        "phase3": result.get("phase3", {}),
+        "normalized": normalized,
+        "metadata": metadata or {},
+    }
 
 
 def normalize_chat_payload(payload: dict[str, Any], text_segments: list[str]) -> dict[str, Any]:
@@ -858,30 +1236,15 @@ async def run_phase2_input_checks(text: str, request_id: str) -> dict[str, Any]:
     }
 
 
-async def run_output_checks(content: bytes, request_id: str) -> dict[str, Any]:
-    settings = get_settings()
-    runtime = get_runtime()
+async def run_output_checks(content: bytes, request_id: str, slot: str, path: str) -> dict[str, Any]:
     try:
         payload = json.loads(content)
     except Exception:
-        return {"action": "pass", "detail": "non_json_output", "reason_code": None}
+        return {"action": "allow", "detail": "non_json_output", "reason_code": None}
     output_text = extract_assistant_text(payload)
     if not output_text:
-        return {"action": "pass", "detail": "no_text_output", "reason_code": None}
-    if len(output_text) > settings.max_non_stream_output_chars:
-        return {"action": "block", "detail": "Output exceeded non-stream character limit", "reason_code": "OUTPUT_TOO_LONG"}
-    matches = runtime.blocklist.find_matches(output_text)
-    if matches and settings.output_blocklist_enforce:
-        return {"action": "block", "detail": f"Output matched blocklist terms: {', '.join(matches[:5])}", "reason_code": "BLOCKLIST_MATCH"}
-    phase2 = await run_phase2_input_checks(output_text, request_id)
-    phase3 = run_phase3_decision(phase2)
-    return {
-        "action": "pass",
-        "detail": "output_observe_only",
-        "reason_code": None,
-        "phase2": phase2,
-        "phase3": phase3,
-    }
+        return {"action": "allow", "detail": "no_text_output", "reason_code": None}
+    return await evaluate_output_guardrails(output_text, request_id, slot=slot, path=path)
 
 
 def run_phase1_input_checks(payload: dict[str, Any], input_text: str, stream: bool, rate_key: str) -> dict[str, Any]:
