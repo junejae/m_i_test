@@ -99,6 +99,7 @@ class GuardrailsSettings:
     metrics_enabled: bool = os.getenv("GUARDRAILS_METRICS_ENABLED", "1") == "1"
     admin_api_key: str = os.getenv("GUARDRAILS_ADMIN_API_KEY", "")
     admin_ui_enabled: bool = os.getenv("GUARDRAILS_ADMIN_UI_ENABLED", "1") == "1"
+    toxicity_warmup_on_reload: bool = os.getenv("GUARDRAILS_TOXICITY_WARMUP_ON_RELOAD", "1") == "1"
 
     def admin_settings_payload(self) -> dict[str, Any]:
         return {field_name: getattr(self, field_name) for field_name in sorted(MUTABLE_SETTING_FIELDS)}
@@ -200,51 +201,51 @@ class BlocklistMatcher:
 
 class PiiAnalyzer:
     def __init__(self, enabled: bool) -> None:
-        self.enabled = enabled and AnalyzerEngine is not None and RecognizerRegistry is not None
+        self.enabled = enabled and PatternRecognizer is not None and Pattern is not None
         self.engine: Optional[Any] = None
         self.init_error: Optional[str] = None
+        self.recognizers: list[Any] = []
         if not self.enabled:
             return
         try:
-            registry = RecognizerRegistry(supported_languages=["ko", "en"])
-            if PatternRecognizer is not None and Pattern is not None:
-                registry.add_recognizer(
-                    PatternRecognizer(
-                        supported_entity="KR_PHONE_NUMBER",
-                        patterns=[Pattern(name="kr_phone", regex=r"(?:\+82[- ]?)?0?1[0-9][- ]?\d{3,4}[- ]?\d{4}", score=0.7)],
-                        supported_language="ko",
-                    )
-                )
-                registry.add_recognizer(
-                    PatternRecognizer(
-                        supported_entity="KR_RRN",
-                        patterns=[Pattern(name="kr_rrn", regex=r"\b\d{6}-?[1-4]\d{6}\b", score=0.85)],
-                        supported_language="ko",
-                    )
-                )
-                registry.add_recognizer(
-                    PatternRecognizer(
-                        supported_entity="EMAIL_ADDRESS",
-                        patterns=[Pattern(name="email", regex=r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", score=0.75)],
-                        supported_language="ko",
-                    )
-                )
-            self.engine = AnalyzerEngine(
-                registry=registry,
-                supported_languages=["ko", "en"],
-                nlp_engine=None,
-            )
+            # Presidio's AnalyzerEngine expects an NLP engine per requested language.
+            # This service only ships regex-based recognizers, so drive them directly
+            # and avoid language-specific NLP lookup failures such as KeyError('ko').
+            self.recognizers = [
+                PatternRecognizer(
+                    supported_entity="KR_PHONE_NUMBER",
+                    patterns=[Pattern(name="kr_phone", regex=r"(?:\+82[- ]?)?0?1[0-9][- ]?\d{3,4}[- ]?\d{4}", score=0.7)],
+                    supported_language="en",
+                ),
+                PatternRecognizer(
+                    supported_entity="KR_RRN",
+                    patterns=[Pattern(name="kr_rrn", regex=r"\b\d{6}-?[1-4]\d{6}\b", score=0.85)],
+                    supported_language="en",
+                ),
+                PatternRecognizer(
+                    supported_entity="EMAIL_ADDRESS",
+                    patterns=[Pattern(name="email", regex=r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", score=0.75)],
+                    supported_language="en",
+                ),
+            ]
         except Exception as exc:  # pragma: no cover
             self.init_error = str(exc)
-            self.engine = None
+            self.recognizers = []
 
     def analyze(self, text: str) -> dict[str, Any]:
         if not self.enabled:
             return {"enabled": False, "results": [], "error": self.init_error}
-        if self.engine is None:
+        if not self.recognizers:
             return {"enabled": False, "results": [], "error": self.init_error or "engine_unavailable"}
-        language = "ko" if re.search(r"[가-힣]", text) else "en"
-        results = self.engine.analyze(text=text, language=language)
+        results: list[Any] = []
+        for recognizer in self.recognizers:
+            results.extend(
+                recognizer.analyze(
+                    text=text,
+                    entities=[recognizer.supported_entities[0]],
+                    nlp_artifacts=None,
+                )
+            )
         serialized = [
             {
                 "entity_type": result.entity_type,
@@ -262,16 +263,23 @@ class ToxicityAnalyzer:
         self.enabled = enabled and Detoxify is not None
         self.model: Optional[Any] = None
         self.init_error: Optional[str] = None
+        self._load_lock = Lock()
 
     def _ensure_model(self) -> None:
         if not self.enabled or self.model is not None:
             return
-        try:
-            self.model = Detoxify("multilingual")
-        except Exception as exc:  # pragma: no cover
-            self.init_error = str(exc)
-            self.enabled = False
-            self.model = None
+        with self._load_lock:
+            if not self.enabled or self.model is not None:
+                return
+            try:
+                self.model = Detoxify("multilingual")
+            except Exception as exc:  # pragma: no cover
+                self.init_error = str(exc)
+                self.enabled = False
+                self.model = None
+
+    def warmup(self) -> None:
+        self._ensure_model()
 
     def analyze(self, text: str) -> dict[str, Any]:
         if not self.enabled:
@@ -464,6 +472,17 @@ async def reload_runtime_state() -> None:
     app.state.settings = settings
     app.state.runtime = GuardrailsRuntime(settings)
     app.state.http_client = build_http_client()
+    await warm_runtime_components()
+
+
+async def warm_runtime_components() -> None:
+    settings = get_settings()
+    runtime = get_runtime()
+    if settings.toxicity_warmup_on_reload and runtime.toxicity_analyzer.enabled:
+        try:
+            await asyncio.to_thread(runtime.toxicity_analyzer.warmup)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Toxicity analyzer warmup failed: %s", exc)
 
 
 @app.get("/health")

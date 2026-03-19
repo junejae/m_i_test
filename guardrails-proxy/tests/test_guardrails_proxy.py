@@ -305,3 +305,15 @@ async def test_standalone_input_check_can_return_observe_when_phase3_flags_gray(
     payload = response.json()
     assert payload["action"] == "observe"
     assert payload["reason_code"] == "PII_DETECTED"
+
+
+@pytest.mark.anyio
+async def test_reload_runtime_state_runs_warmup_hook(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = {"count": 0}
+
+    async def fake_warm() -> None:
+        called["count"] += 1
+
+    monkeypatch.setattr(guardrails_app, "warm_runtime_components", fake_warm)
+    await guardrails_app.reload_runtime_state()
+    assert called["count"] == 1
