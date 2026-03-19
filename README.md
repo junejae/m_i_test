@@ -12,7 +12,7 @@ This template assumes:
 - `mig-asr-5`: `large-v3` (faster-whisper ASR config, non-vLLM)
 - `mig-vllm-6`: `Qwen/Qwen3-TTS-12Hz-1.7B-Base` (vLLM-Omni TTS config)
 - `mig-diffusion-7`: `runwayml/stable-diffusion-v1-5` (small diffusion image generation)
-- `guardrails-proxy`: slot1 전용 OpenAI-compatible middleware (Phase 1 enforce, Phase 2/3 observe)
+- `guardrails-proxy`: standalone guardrails check service + admin UI/API
 - `proxy-gateway`: Nginx HTTPS reverse proxy on 443 with `X-API-Key` auth
 
 ## Prerequisites
@@ -259,13 +259,20 @@ External HTTPS endpoints via proxy:
 - `https://<SERVER_IP>:8443/slot6/v1/...`
 - `https://<SERVER_IP>:8443/slot7/v1/...`
 
+Guardrails routing:
+
+- `/slot1/v1/...` is now raw Qwen serving through the proxy
+- guardrails are optional and exposed separately under `/guardrails/*`
+- recommended MISO flow:
+  1. `POST /guardrails/input/check`
+  2. if allowed, call `/slot1/v1/chat/completions`
+  3. `POST /guardrails/output/check`
+
 Guardrails rollout notes:
-- `/slot1/v1/chat/completions` passes through `guardrails-proxy`
-- `/slot1/health` bypasses guardrails and hits `mig-vllm-1` directly
+- `/slot1/v1/chat/completions` now hits `mig-vllm-1` directly through the proxy
 - direct localhost calls such as `http://127.0.0.1:${PORT_1:-8101}` bypass guardrails by design
-- output semantic checks run only when `stream=false`
-- `stream=true` keeps deterministic input checks only
-- `guardrails-proxy` now also exposes standalone check APIs so orchestration layers can call guardrails without invoking the slot1 model path
+- standalone guardrails live under `/guardrails/*`
+- output semantic checks apply only when callers explicitly use the standalone output-check path
 
 Quick external sharing without network/NAT changes (Cloudflare quick tunnel):
 
@@ -903,7 +910,8 @@ chmod +x scripts/smoke_test_all_services.sh
 
 This script validates:
 - slot1 chat completion
-- slot1 guardrails pass/block behavior through HTTPS proxy
+- slot1 chat completion through HTTPS proxy
+- standalone guardrails pass/block behavior
 - slot2 chat completion (VL server text-only request)
 - slot3 embeddings
 - slot4 rerank (with `/v1/models` fallback)

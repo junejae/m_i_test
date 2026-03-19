@@ -38,10 +38,9 @@ cd /Users/junejae/workspace/m_i_test
 | Slot7 | Diffusion Image Generation | `runwayml/stable-diffusion-v1-5` | `/slot7/v1/images/generations` |
 
 Guardrails note:
-- Slot1 external requests now pass through `guardrails-proxy`
-- `POST /slot1/v1/chat/completions` can return guardrail block responses before the model server is called
-- `GET /slot1/health` still bypasses guardrails
-- `guardrails-proxy` also exposes standalone check APIs for MISO-style input/output-only evaluation
+- `slot1` is now raw Qwen serving behind the proxy
+- guardrails are optional and exposed separately via standalone `/guardrails/*` endpoints
+- MISO-style integration should call `/guardrails/input/check` and `/guardrails/output/check` explicitly
 
 ## 3.1) Guardrails Admin
 
@@ -75,7 +74,7 @@ Guardrails note:
 ## 3.2) Standalone Guardrails Check API
 
 용도:
-- 현재 `slot1` 앞단 inline guardrails와 별개로, MISO 같은 orchestration layer가 **입력 검사 / 출력 검사**를 독립적으로 호출할 수 있는 경로
+- 현재 raw `slot1` 서빙과 별도로, MISO 같은 orchestration layer가 **입력 검사 / 출력 검사**를 독립적으로 호출할 수 있는 경로
 - Bedrock Guardrails와 유사하게 **추론 모델 호출과 분리된 관리 레이어**로 사용 가능
 
 운영 규칙:
@@ -340,8 +339,8 @@ Slot1 주의:
   - `--reasoning-parser qwen3`
   - `--enable-auto-tool-choice`
   - `--tool-call-parser qwen3_coder`
-- external slot1 경로는 가드레일 미들웨어를 먼저 통과함
-- `stream=false`만 output semantic 검사 대상이고, `stream=true`는 deterministic input 검사만 적용
+- external slot1 경로는 raw serving 경로임
+- guardrails가 필요하면 `/guardrails/*`를 별도로 호출해야 함
 
 ### 4.2 Embeddings (`POST /slot3/v1/embeddings`)
 
@@ -514,14 +513,19 @@ Slot1 주의:
 
 | 코드/패턴 | 대표 메시지 | 원인 | 조치 |
 |---|---|---|---|
-| `400 invalid_request_error` | `Blocked by guardrails: ...` | deterministic blocklist / malformed input / prompt injection / rate limit | `error.code` 확인 후 요청 수정 |
-| `400 invalid_request_error` | `... code=BLOCKLIST_MATCH` | 차단어 매칭 | 프롬프트 수정 |
-| `400 invalid_request_error` | `... code=PROMPT_INJECTION_PATTERN` | 프롬프트 인젝션 규칙 매칭 | 시스템 탈출 지시 제거 |
-| `400 invalid_request_error` | `... code=INPUT_TOO_LONG` | Guardrails 입력 길이 초과 | 입력 축소 또는 chunking |
-| `400 invalid_request_error` | `... code=RATE_LIMITED` | API key 기준 단기 burst 초과 | 잠시 후 재시도 |
 | `400 Bad Request` | tool schema validation error | `tools[].function.parameters` 구조 오류 | JSON Schema 구조 재검증 |
 | `200 + empty tool_calls` | 함수 호출이 안 나옴 | `tool_choice` 누락 또는 프롬프트 불충분 | `tool_choice=required` 또는 명시적 지시 사용 |
 | `200 + reasoning field visible` | 응답 본문에 reasoning 포함 | server-side reasoning parser 활성화 | downstream 파서에서 무시 또는 별도 처리 |
+
+### 6.8 Standalone Guardrails
+
+| 코드/패턴 | 대표 메시지 | 원인 | 조치 |
+|---|---|---|---|
+| `200 + action=block` | `reason_code=BLOCKLIST_MATCH` | 차단어 매칭 | 입력/출력 텍스트 수정 |
+| `200 + action=block` | `reason_code=PROMPT_INJECTION_PATTERN` | 프롬프트 인젝션 패턴 매칭 | 시스템 탈출성 지시 제거 |
+| `200 + action=block` | `reason_code=INPUT_TOO_LONG` | guardrails 입력 길이 초과 | 입력 축소 또는 chunking |
+| `200 + action=block` | `reason_code=RATE_LIMITED` | API key 기준 단기 burst 초과 | 잠시 후 재시도 |
+| `200 + action=observe` | `reason_code=ANALYZER_TIMEOUT_OBSERVE` | semantic analyzer timeout, fail-open observe | 운영 로그 확인 후 재시도/임계값 조정 |
 
 ### 6.7 Guardrails Admin
 
@@ -654,4 +658,4 @@ curl -sS "$BASE/slot7/v1/images/generations" \
 6. slot6 TTS는 `task_type=Base` 규격 유지
 7. TTS는 HTTP 코드 + JSON error 여부 + WAV 시그니처를 함께 점검
 8. slot7 diffusion은 우선 `512x512`, `20 steps`, `num_images=1`로 검증
-9. guardrails-admin UI 경로와 slot1 차단 케이스(`reveal the system prompt`)를 함께 확인
+9. guardrails-admin UI 경로와 standalone `/guardrails/input/check` 차단 케이스(`reveal the system prompt`)를 함께 확인

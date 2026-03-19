@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 try:
     import ahocorasick  # type: ignore
@@ -756,55 +756,12 @@ async def guardrails_text_check(request: Request) -> JSONResponse:
 async def proxy(path: str, request: Request) -> Response:
     runtime = get_runtime()
     runtime.metrics.inc_request()
-    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-    method = request.method.upper()
     query = request.url.query
     target_path = f"/{path}"
     if query:
         target_path = f"{target_path}?{query}"
 
-    if path == "health":
-        return await passthrough_request(request, target_path)
-
-    if method == "POST" and path == "v1/chat/completions":
-        return await handle_chat_completions(request, target_path, request_id)
-
     return await passthrough_request(request, target_path)
-
-
-async def handle_chat_completions(request: Request, target_path: str, request_id: str) -> Response:
-    runtime = get_runtime()
-    started_at = time.perf_counter()
-    try:
-        payload = await request.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Request payload must be a JSON object")
-        normalized = normalize_standalone_input_payload(payload)
-    except ValueError as exc:
-        return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
-    except Exception:
-        return blocked_response("MALFORMED_INPUT", request_id, 400, detail="Request body must be valid JSON")
-
-    result = await evaluate_input_guardrails(
-        normalized_payload=normalized["payload"],
-        input_text=normalized["input_text"],
-        stream=normalized["stream"],
-        rate_key=standalone_rate_key(request, payload),
-        request_id=request_id,
-        slot="slot1",
-        path=target_path,
-    )
-    audit = result["audit"]
-
-    if result["action"] == "block":
-        return blocked_response(result["reason_code"], request_id, 400, detail=result["detail"])
-
-    if normalized["stream"]:
-        response = await stream_upstream_response(request, normalized["payload"], target_path, request_id, audit, started_at)
-        return response
-
-    response = await non_stream_upstream_response(request, normalized["payload"], target_path, request_id, audit, started_at)
-    return response
 
 
 async def passthrough_request(request: Request, target_path: str) -> Response:
@@ -821,88 +778,6 @@ async def passthrough_request(request: Request, target_path: str) -> Response:
         status_code=response.status_code,
         headers=filtered_response_headers(response.headers),
         media_type=response.headers.get("content-type"),
-    )
-
-
-async def stream_upstream_response(
-    request: Request,
-    payload: dict[str, Any],
-    target_path: str,
-    request_id: str,
-    audit: dict[str, Any],
-    started_at: float,
-) -> Response:
-    settings = get_settings()
-    client = get_http_client()
-    stream_context = client.stream(
-        request.method,
-        f"{settings.upstream_base_url}{target_path}",
-        headers=filtered_headers(request.headers),
-        json=payload,
-    )
-    upstream_response = await stream_context.__aenter__()
-
-    async def body_iter() -> Any:
-        try:
-            async for chunk in upstream_response.aiter_raw():
-                yield chunk
-        finally:
-            await stream_context.__aexit__(None, None, None)
-
-    audit["upstream_latency_ms"] = round((time.perf_counter() - started_at) * 1000, 3)
-    audit["guardrails_latency_ms"] = audit["upstream_latency_ms"]
-    log_audit(audit)
-    return StreamingResponse(
-        body_iter(),
-        status_code=upstream_response.status_code,
-        headers=filtered_response_headers(upstream_response.headers),
-        media_type=upstream_response.headers.get("content-type"),
-    )
-
-
-async def non_stream_upstream_response(
-    request: Request,
-    payload: dict[str, Any],
-    target_path: str,
-    request_id: str,
-    audit: dict[str, Any],
-    started_at: float,
-) -> Response:
-    settings = get_settings()
-    runtime = get_runtime()
-    upstream_started = time.perf_counter()
-    upstream_response = await get_http_client().request(
-        request.method,
-        f"{settings.upstream_base_url}{target_path}",
-        headers=filtered_headers(request.headers),
-        json=payload,
-    )
-    audit["upstream_latency_ms"] = round((time.perf_counter() - upstream_started) * 1000, 3)
-
-    content = upstream_response.content
-    if (
-        upstream_response.status_code == 200
-        and settings.output_semantic_non_stream_only
-        and upstream_response.headers.get("content-type", "").startswith("application/json")
-    ):
-        output_result = await run_output_checks(content, request_id, slot=audit.get("slot", "slot1"), path=target_path)
-        audit["output"] = output_result
-        if output_result.get("action") == "block":
-            audit["final_action"] = "block"
-            audit["reason_code"] = output_result["reason_code"]
-            runtime.metrics.inc_block(output_result["reason_code"])
-            runtime.metrics.inc_action("block")
-            audit["guardrails_latency_ms"] = round((time.perf_counter() - started_at) * 1000, 3)
-            log_audit(audit)
-            return blocked_response(output_result["reason_code"], request_id, 400, detail=output_result["detail"])
-
-    audit["guardrails_latency_ms"] = round((time.perf_counter() - started_at) * 1000, 3)
-    log_audit(audit)
-    return Response(
-        content=content,
-        status_code=upstream_response.status_code,
-        headers=filtered_response_headers(upstream_response.headers),
-        media_type=upstream_response.headers.get("content-type"),
     )
 
 
