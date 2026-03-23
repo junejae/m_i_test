@@ -162,6 +162,8 @@ async def test_admin_config_update_reloads_runtime() -> None:
     assert put_response.json()["settings"]["max_input_chars"] == 42
     assert app.state.settings.max_input_chars == 42
     assert app.state.runtime.prompt_injection_patterns[0].pattern == "act\\s+as\\s+system"
+    assert "blocklist" in put_response.json()
+    assert "golden_set" in put_response.json()
 
 
 @pytest.mark.anyio
@@ -185,6 +187,32 @@ async def test_admin_blocklist_update_persists_and_blocks() -> None:
     assert blocked.status_code == 200
     assert blocked.json()["action"] == "block"
     assert blocked.json()["reason_code"] == "BLOCKLIST_MATCH"
+
+
+@pytest.mark.anyio
+async def test_admin_config_reflects_blocklist_and_golden_set_updates() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        blocklist_response = await client.put(
+            "/admin/blocklist",
+            headers={"X-Admin-API-Key": "admin-secret"},
+            json={"terms": ["새로운 금지어", "또 다른 금지어"]},
+        )
+        assert blocklist_response.status_code == 200
+
+        golden_set_response = await client.put(
+            "/admin/golden-set",
+            headers={"X-Admin-API-Key": "admin-secret"},
+            json={"items": [{"label": "helpdesk", "text": "비밀번호 초기화 절차"}]},
+        )
+        assert golden_set_response.status_code == 200
+
+        config_response = await client.get("/admin/config", headers={"X-Admin-API-Key": "admin-secret"})
+
+    assert config_response.status_code == 200
+    payload = config_response.json()
+    assert payload["blocklist"]["terms"] == ["새로운 금지어", "또 다른 금지어"]
+    assert payload["golden_set"]["items"] == [{"label": "helpdesk", "text": "비밀번호 초기화 절차"}]
 
 
 @pytest.mark.anyio

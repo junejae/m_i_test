@@ -545,8 +545,14 @@ async def admin_put_config(request: Request) -> JSONResponse:
     payload = await parse_admin_json(request)
     settings_payload = payload.get("settings", {})
     policy_payload = payload.get("policy", {})
+    blocklist_payload = payload.get("blocklist")
+    golden_set_payload = payload.get("golden_set")
     if not isinstance(settings_payload, dict) or not isinstance(policy_payload, dict):
         raise HTTPException(status_code=400, detail="settings and policy must be JSON objects")
+    if blocklist_payload is not None and not isinstance(blocklist_payload, dict):
+        raise HTTPException(status_code=400, detail="blocklist must be a JSON object")
+    if golden_set_payload is not None and not isinstance(golden_set_payload, dict):
+        raise HTTPException(status_code=400, detail="golden_set must be a JSON object")
 
     current_settings = get_settings()
     validated_settings = {}
@@ -558,6 +564,16 @@ async def admin_put_config(request: Request) -> JSONResponse:
     persisted_policy = dict(policy_payload)
     persisted_policy["settings_overrides"] = validated_settings
     write_json_file(current_settings.config_path, persisted_policy)
+    if blocklist_payload is not None:
+        terms = blocklist_payload.get("terms", [])
+        if not isinstance(terms, list) or any(not isinstance(term, str) for term in terms):
+            raise HTTPException(status_code=400, detail="blocklist.terms must be an array of strings")
+        write_lines_file(current_settings.blocklist_path, terms)
+    if golden_set_payload is not None:
+        items = golden_set_payload.get("items", [])
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="golden_set.items must be an array")
+        write_json_file(current_settings.golden_set_path, items)
     await reload_runtime_state()
     return JSONResponse(content=serialize_admin_config())
 
@@ -1251,6 +1267,8 @@ def serialize_admin_config() -> dict[str, Any]:
     return {
         "settings": settings.admin_settings_payload(),
         "policy": policy,
+        "blocklist": {"terms": read_lines(settings.blocklist_path)},
+        "golden_set": {"items": load_json_file(settings.golden_set_path, [])},
     }
 
 
