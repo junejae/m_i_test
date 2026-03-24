@@ -598,6 +598,38 @@ async def admin_put_blocklist(request: Request) -> JSONResponse:
     return JSONResponse(content={"terms": read_lines(get_settings().blocklist_path)})
 
 
+@app.get("/admin/prompt-patterns")
+async def admin_get_prompt_patterns(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    settings = get_settings()
+    policy = load_json_file(settings.config_path, {})
+    patterns = policy.get("prompt_injection_patterns", [])
+    if not isinstance(patterns, list):
+        patterns = []
+    return JSONResponse(content={"patterns": patterns})
+
+
+@app.put("/admin/prompt-patterns")
+async def admin_put_prompt_patterns(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    patterns = payload.get("patterns", [])
+    if not isinstance(patterns, list) or any(not isinstance(pattern, str) for pattern in patterns):
+        raise HTTPException(status_code=400, detail="patterns must be an array of strings")
+    settings = get_settings()
+    persisted_policy = load_json_file(settings.config_path, {})
+    if not isinstance(persisted_policy, dict):
+        persisted_policy = {}
+    persisted_policy["prompt_injection_patterns"] = patterns
+    write_json_file(settings.config_path, persisted_policy)
+    await reload_runtime_state()
+    policy = load_json_file(get_settings().config_path, {})
+    reloaded_patterns = policy.get("prompt_injection_patterns", [])
+    if not isinstance(reloaded_patterns, list):
+        reloaded_patterns = []
+    return JSONResponse(content={"patterns": reloaded_patterns})
+
+
 @app.get("/admin/golden-set")
 async def admin_get_golden_set(request: Request) -> JSONResponse:
     require_admin_api_key(request)

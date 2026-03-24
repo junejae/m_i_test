@@ -471,6 +471,7 @@ Admin scope:
 - thresholds
 - limits
 - prompt injection regex list
+- dedicated prompt-pattern endpoint
 - blocklist management
 - golden set management
 
@@ -483,6 +484,7 @@ These are the main gaps before this should be treated as a mature production gua
 3. Multimodal guardrails are not yet defined
 4. Quick Tunnel URL is not stable infrastructure
 5. Observe-to-enforce thresholds still need evaluation against real traffic
+6. Admin storage model is still single-policy only; policy IDs, versioning, change history, and item-level CRUD are not implemented yet
 
 ## 13. Minimal Curl Set for MISO Team
 

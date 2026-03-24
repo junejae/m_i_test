@@ -1,9 +1,16 @@
 {
   "prompt_injection_patterns": [
     "ignore\\s+(all\\s+)?previous\\s+instructions",
+    "disregard\\s+(all\\s+)?(previous|above)\\s+instructions",
+    "forget\\s+(all\\s+)?(prior|previous)\\s+instructions",
     "reveal\\s+(the\\s+)?system\\s+prompt",
     "show\\s+(the\\s+)?developer\\s+message",
+    "(show|print|dump)\\s+(the\\s+)?(hidden|internal)\\s+(prompt|instructions)",
     "bypass\\s+(all\\s+)?safety",
-    "act\\s+as\\s+system"
+    "(disable|turn\\s+off)\\s+(all\\s+)?safety(\\s+filters?)?",
+    "(act|respond)\\s+as\\s+(the\\s+)?system",
+    "(pretend|roleplay)\\s+you\\s+are\\s+(the\\s+)?(system|developer)",
+    "(leak|dump|exfiltrate)\\s+(all\\s+)?(secrets|credentials|tokens?)",
+    "(output|show)\\s+(the\\s+)?(api\\s*key|access\\s*token|environment\\s+variables?)"
   ]
 }

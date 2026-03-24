@@ -67,6 +67,8 @@ Guardrails note:
 | `PUT` | `/guardrails-admin/config` | 설정/정책 저장 + 런타임 reload |
 | `GET` | `/guardrails-admin/blocklist` | blocklist 조회 |
 | `PUT` | `/guardrails-admin/blocklist` | blocklist 저장 + 런타임 reload |
+| `GET` | `/guardrails-admin/prompt-patterns` | prompt injection regex 목록 조회 |
+| `PUT` | `/guardrails-admin/prompt-patterns` | prompt injection regex 목록 저장 + 런타임 reload |
 | `GET` | `/guardrails-admin/golden-set` | golden set 조회 |
 | `PUT` | `/guardrails-admin/golden-set` | golden set 저장 + 런타임 reload |
 | `POST` | `/guardrails-admin/reload` | 파일 기준 런타임 reload |
@@ -163,6 +165,24 @@ API 목록:
 }
 ```
 
+`GET /guardrails-admin/prompt-patterns` 응답 및 `PUT /guardrails-admin/prompt-patterns` 요청:
+
+```json
+{
+  "patterns": [
+    "ignore\\s+(all\\s+)?previous\\s+instructions",
+    "reveal\\s+(the\\s+)?system\\s+prompt",
+    "(show|print|dump)\\s+(the\\s+)?(hidden|internal)\\s+(prompt|instructions)",
+    "(leak|dump|exfiltrate)\\s+(all\\s+)?(secrets|credentials|tokens?)"
+  ]
+}
+```
+
+서식 규칙:
+- `patterns`는 regex string 배열
+- overly broad regex는 false positive를 늘리므로 금지
+- prompt injection, hidden prompt exfiltration, secret exfiltration, safety bypass 같은 deterministic 패턴 위주로 관리 권장
+
 `GET /guardrails-admin/golden-set` 응답 및 `PUT /guardrails-admin/golden-set` 요청:
 
 ```json
@@ -188,6 +208,12 @@ UI 필드 가이드:
 | `Thresholds & Timeouts` | `analyzer_timeout_seconds`, `toxicity_*`, `relevance_safe_threshold` | timeout을 너무 낮추면 fail-open 로그가 급증할 수 있음 |
 | `Limits` | `max_input_chars`, `max_stream_input_chars`, `rate_limit_*` | 긴 요청이 많으면 먼저 input limit부터 조정 |
 | `Analyzers` | `relevance_enabled`, `toxicity_enabled`, `pii_enabled` | relevance는 golden set 품질 검증 전까지 기본 OFF 유지 권장 |
+| `Prompt Injection Patterns` | `patterns[]` | broad regex보다 구체적 exfiltration/bypass 패턴 위주로 유지 |
+
+현재 Admin 모델 제약:
+- 현재 구조는 **단일 정책(single policy)** 기준
+- 정책 ID, 버저닝, 변경 이력, 항목 단위 CRUD는 아직 미지원
+- `prompt-patterns` 전용 endpoint는 지원하지만, multi-policy / history / item-level CRUD는 저장 구조 개편이 선행되어야 함
 | `Prompt Injection Patterns` | regex list | 너무 넓은 패턴은 정상 요청 오탐을 유발 |
 | `Blocklist` | phrase list | exact phrase 위주로 운영, 과도한 일반어 추가 금지 |
 | `Golden Set` | `[{label,text}]` array | relevance 사용 시에만 의미 있음 |

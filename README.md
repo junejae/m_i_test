@@ -404,6 +404,7 @@ UI usage guide:
 - `Prompt Injection Patterns`
   - 한 줄에 regex 하나
   - 과도하게 넓은 정규식은 정상 요청까지 막을 수 있음
+  - prompt exfiltration, secret exfiltration, privilege escalation, safety bypass처럼 deterministic 패턴 위주 유지 권장
 - `Blocklist`
   - 한 줄에 deterministic phrase 하나
   - 먼저 exact phrase 위주로 관리
@@ -420,6 +421,13 @@ UI usage guide:
 4. `Save Structured Config`
 5. 필요 시 `Save Blocklist`, `Save Golden Set`
 6. 마지막에 `Reload Runtime`
+
+현재 Admin 저장 모델 제약:
+- 단일 정책(single policy)만 지원
+- 정책 ID / 버저닝 미지원
+- 변경 이력 미지원
+- 항목 단위 CRUD 미지원
+- `prompt-patterns`는 전용 endpoint를 지원하지만, multi-policy/history/item CRUD는 별도 저장 구조 개편이 필요
 
 Admin API payload guide:
 
@@ -487,6 +495,24 @@ Rules:
 - one deterministic phrase per array item
 - keep phrases tight and specific
 - avoid generic words that would create false positives
+
+`GET /guardrails-admin/prompt-patterns` response and `PUT /guardrails-admin/prompt-patterns` request:
+
+```json
+{
+  "patterns": [
+    "ignore\\s+(all\\s+)?previous\\s+instructions",
+    "reveal\\s+(the\\s+)?system\\s+prompt",
+    "(show|print|dump)\\s+(the\\s+)?(hidden|internal)\\s+(prompt|instructions)",
+    "(leak|dump|exfiltrate)\\s+(all\\s+)?(secrets|credentials|tokens?)"
+  ]
+}
+```
+
+Rules:
+- `patterns` is an array of regex strings
+- keep patterns deterministic and reviewable
+- prefer exfiltration, privilege escalation, safety bypass, and secret leakage signatures over broad semantic phrases
 
 `GET /guardrails-admin/golden-set` response and `PUT /guardrails-admin/golden-set` request:
 

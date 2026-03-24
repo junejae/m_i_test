@@ -471,6 +471,7 @@ Admin API prefix:
 - threshold
 - limit
 - prompt injection regex 목록
+- prompt-patterns 전용 endpoint
 - blocklist 관리
 - golden set 관리
 
@@ -483,6 +484,7 @@ Admin API prefix:
 3. 멀티모달 guardrails 정책은 아직 정의되지 않음
 4. Quick Tunnel URL은 안정적인 인프라가 아님
 5. observe에서 enforce로 전환할 임계값 검증이 아직 필요함
+6. Admin 저장 모델은 아직 단일 정책 기준이라 정책 ID, 버저닝, 변경 이력, 항목 단위 CRUD는 미구현 상태임
 
 ## 13. MISO 팀용 최소 curl 세트
 
