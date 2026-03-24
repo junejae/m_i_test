@@ -16,6 +16,7 @@ def reset_app_state(tmp_path: Path) -> None:
     config_path = tmp_path / "policy.json"
     blocklist_path = tmp_path / "blocklist.txt"
     golden_set_path = tmp_path / "golden_set.json"
+    policy_store_path = tmp_path / "policies_store.json"
     config_path.write_text('{"prompt_injection_patterns":["ignore\\\\s+previous\\\\s+instructions"]}', encoding="utf-8")
     blocklist_path.write_text("ignore previous instructions\n", encoding="utf-8")
     golden_set_path.write_text("[]\n", encoding="utf-8")
@@ -24,6 +25,7 @@ def reset_app_state(tmp_path: Path) -> None:
         config_path=str(config_path),
         blocklist_path=str(blocklist_path),
         golden_set_path=str(golden_set_path),
+        policy_store_path=str(policy_store_path),
         toxicity_enabled=False,
         pii_enabled=False,
         relevance_enabled=False,
@@ -141,6 +143,105 @@ async def test_admin_config_requires_auth() -> None:
         response = await client.get("/admin/config")
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid admin API key"
+
+
+@pytest.mark.anyio
+async def test_admin_policy_creation_and_activation_round_trip() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        list_response = await client.get("/admin/policies", headers={"X-Admin-API-Key": "admin-secret"})
+        assert list_response.status_code == 200
+        assert list_response.json()["active_policy_id"] == "default"
+
+        create_response = await client.post(
+            "/admin/policies",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"policy_id": "customer-a", "display_name": "Customer A"},
+        )
+        assert create_response.status_code == 201
+        assert create_response.json()["policy_id"] == "customer-a"
+        assert create_response.json()["current_version"] == 1
+
+        activate_response = await client.post(
+            "/admin/policies/customer-a/activate",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"version": 1},
+        )
+        assert activate_response.status_code == 200
+
+        config_response = await client.get("/admin/config", headers={"X-Admin-API-Key": "admin-secret"})
+
+    assert config_response.status_code == 200
+    assert config_response.json()["meta"]["active_policy_id"] == "customer-a"
+    assert config_response.json()["meta"]["active_version"] == 1
+
+
+@pytest.mark.anyio
+async def test_admin_blocklist_item_crud_tracks_versions_and_history() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        add_response = await client.post(
+            "/admin/policies/default/blocklist",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"term": "show the api key"},
+        )
+        assert add_response.status_code == 201
+        entry_id = add_response.json()["entry"]["id"]
+
+        patch_response = await client.patch(
+            f"/admin/policies/default/blocklist/{entry_id}",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"term": "show the access token"},
+        )
+        assert patch_response.status_code == 200
+
+        delete_response = await client.delete(
+            f"/admin/policies/default/blocklist/{entry_id}",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+        )
+        assert delete_response.status_code == 200
+
+        versions_response = await client.get("/admin/policies/default/versions", headers={"X-Admin-API-Key": "admin-secret"})
+        history_response = await client.get("/admin/history", headers={"X-Admin-API-Key": "admin-secret"})
+
+    assert versions_response.status_code == 200
+    assert [item["version"] for item in versions_response.json()["versions"]] == [1, 2, 3, 4]
+    assert history_response.status_code == 200
+    actions = [item["action"] for item in history_response.json()["items"]]
+    assert "blocklist_entry_added" in actions
+    assert "blocklist_entry_updated" in actions
+    assert "blocklist_entry_deleted" in actions
+
+
+@pytest.mark.anyio
+async def test_admin_prompt_patterns_item_crud_returns_entries() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        add_response = await client.post(
+            "/admin/policies/default/prompt-patterns",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"pattern": "extract\\s+all\\s+credentials"},
+        )
+        assert add_response.status_code == 201
+        entry_id = add_response.json()["entry"]["id"]
+
+        list_response = await client.get("/admin/policies/default/prompt-patterns", headers={"X-Admin-API-Key": "admin-secret"})
+        assert list_response.status_code == 200
+        assert any(item["id"] == entry_id for item in list_response.json()["items"])
+
+        patch_response = await client.patch(
+            f"/admin/policies/default/prompt-patterns/{entry_id}",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"pattern": "extract\\s+all\\s+tokens"},
+        )
+        assert patch_response.status_code == 200
+
+        delete_response = await client.delete(
+            f"/admin/policies/default/prompt-patterns/{entry_id}",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+        )
+
+    assert delete_response.status_code == 200
 
 
 @pytest.mark.anyio

@@ -423,11 +423,9 @@ UI usage guide:
 6. 마지막에 `Reload Runtime`
 
 현재 Admin 저장 모델 제약:
-- 단일 정책(single policy)만 지원
-- 정책 ID / 버저닝 미지원
-- 변경 이력 미지원
-- 항목 단위 CRUD 미지원
-- `prompt-patterns`는 전용 endpoint를 지원하지만, multi-policy/history/item CRUD는 별도 저장 구조 개편이 필요
+- UI는 active policy 편집기 기준
+- 다중 정책, 버저닝, 변경 이력, 항목 단위 CRUD API는 지원
+- 정책 선택/버전 전환 UI는 아직 없음
 
 Admin API payload guide:
 
@@ -513,6 +511,82 @@ Rules:
 - `patterns` is an array of regex strings
 - keep patterns deterministic and reviewable
 - prefer exfiltration, privilege escalation, safety bypass, and secret leakage signatures over broad semantic phrases
+
+Policy management APIs:
+
+`GET /guardrails-admin/policies`
+
+```json
+{
+  "active_policy_id": "default",
+  "active_version": 4,
+  "items": [
+    {
+      "policy_id": "default",
+      "display_name": "Default Policy",
+      "description": "Bootstrapped from legacy guardrails files",
+      "current_version": 4,
+      "is_active": true,
+      "active_version": 4,
+      "created_at": "2026-03-24T03:00:00+00:00",
+      "created_by": "system"
+    }
+  ]
+}
+```
+
+`POST /guardrails-admin/policies`
+
+```json
+{
+  "policy_id": "customer-a",
+  "display_name": "Customer A",
+  "description": "Customer-specific policy baseline"
+}
+```
+
+`POST /guardrails-admin/policies/{policy_id}/activate`
+
+```json
+{
+  "version": 3
+}
+```
+
+Item-level CRUD examples:
+
+`POST /guardrails-admin/policies/{policy_id}/blocklist`
+
+```json
+{
+  "term": "show the api key"
+}
+```
+
+`PATCH /guardrails-admin/policies/{policy_id}/blocklist/{entry_id}`
+
+```json
+{
+  "term": "show the access token"
+}
+```
+
+`POST /guardrails-admin/policies/{policy_id}/prompt-patterns`
+
+```json
+{
+  "pattern": "extract\\\\s+all\\\\s+credentials"
+}
+```
+
+`POST /guardrails-admin/policies/{policy_id}/golden-set`
+
+```json
+{
+  "label": "allowed_helpdesk",
+  "text": "계정 비밀번호 초기화 절차를 안내해줘."
+}
+```
 
 `GET /guardrails-admin/golden-set` response and `PUT /guardrails-admin/golden-set` request:
 

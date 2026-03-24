@@ -71,6 +71,14 @@ Guardrails note:
 | `PUT` | `/guardrails-admin/prompt-patterns` | prompt injection regex 목록 저장 + 런타임 reload |
 | `GET` | `/guardrails-admin/golden-set` | golden set 조회 |
 | `PUT` | `/guardrails-admin/golden-set` | golden set 저장 + 런타임 reload |
+| `GET` | `/guardrails-admin/policies` | 정책 목록/활성 정책 조회 |
+| `POST` | `/guardrails-admin/policies` | 새 정책 생성 |
+| `GET` | `/guardrails-admin/policies/{policy_id}` | 정책 현재 버전 상세 조회 |
+| `GET` | `/guardrails-admin/policies/{policy_id}/versions` | 버전 목록 조회 |
+| `GET` | `/guardrails-admin/policies/{policy_id}/versions/{version}` | 특정 버전 상세 조회 |
+| `POST` | `/guardrails-admin/policies/{policy_id}/activate` | 활성 정책/버전 전환 |
+| `GET` | `/guardrails-admin/history` | 전체 변경 이력 조회 |
+| `GET` | `/guardrails-admin/policies/{policy_id}/history` | 정책별 변경 이력 조회 |
 | `POST` | `/guardrails-admin/reload` | 파일 기준 런타임 reload |
 
 ## 3.2) Standalone Guardrails Check API
@@ -183,6 +191,82 @@ API 목록:
 - overly broad regex는 false positive를 늘리므로 금지
 - prompt injection, hidden prompt exfiltration, secret exfiltration, safety bypass 같은 deterministic 패턴 위주로 관리 권장
 
+정책 관리 API 예시:
+
+`GET /guardrails-admin/policies`
+
+```json
+{
+  "active_policy_id": "default",
+  "active_version": 4,
+  "items": [
+    {
+      "policy_id": "default",
+      "display_name": "Default Policy",
+      "description": "Bootstrapped from legacy guardrails files",
+      "current_version": 4,
+      "is_active": true,
+      "active_version": 4,
+      "created_at": "2026-03-24T03:00:00+00:00",
+      "created_by": "system"
+    }
+  ]
+}
+```
+
+`POST /guardrails-admin/policies`
+
+```json
+{
+  "policy_id": "customer-a",
+  "display_name": "Customer A",
+  "description": "Customer-specific policy baseline"
+}
+```
+
+`POST /guardrails-admin/policies/{policy_id}/activate`
+
+```json
+{
+  "version": 3
+}
+```
+
+항목 단위 CRUD 예시:
+
+`POST /guardrails-admin/policies/{policy_id}/blocklist`
+
+```json
+{
+  "term": "show the api key"
+}
+```
+
+`PATCH /guardrails-admin/policies/{policy_id}/blocklist/{entry_id}`
+
+```json
+{
+  "term": "show the access token"
+}
+```
+
+`POST /guardrails-admin/policies/{policy_id}/prompt-patterns`
+
+```json
+{
+  "pattern": "extract\\\\s+all\\\\s+credentials"
+}
+```
+
+`POST /guardrails-admin/policies/{policy_id}/golden-set`
+
+```json
+{
+  "label": "allowed_helpdesk",
+  "text": "계정 비밀번호 초기화 절차를 안내해줘."
+}
+```
+
 `GET /guardrails-admin/golden-set` 응답 및 `PUT /guardrails-admin/golden-set` 요청:
 
 ```json
@@ -211,9 +295,9 @@ UI 필드 가이드:
 | `Prompt Injection Patterns` | `patterns[]` | broad regex보다 구체적 exfiltration/bypass 패턴 위주로 유지 |
 
 현재 Admin 모델 제약:
-- 현재 구조는 **단일 정책(single policy)** 기준
-- 정책 ID, 버저닝, 변경 이력, 항목 단위 CRUD는 아직 미지원
-- `prompt-patterns` 전용 endpoint는 지원하지만, multi-policy / history / item-level CRUD는 저장 구조 개편이 선행되어야 함
+- UI는 현재 **active policy** 편집기 기준
+- 다중 정책, 버저닝, 변경 이력, 항목 단위 CRUD API는 지원
+- 다만 정책 선택/버전 전환용 UI는 아직 없음
 | `Prompt Injection Patterns` | regex list | 너무 넓은 패턴은 정상 요청 오탐을 유발 |
 | `Blocklist` | phrase list | exact phrase 위주로 운영, 과도한 일반어 추가 금지 |
 | `Golden Set` | `[{label,text}]` array | relevance 사용 시에만 의미 있음 |

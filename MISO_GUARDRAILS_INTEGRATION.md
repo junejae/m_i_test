@@ -474,6 +474,10 @@ Admin scope:
 - dedicated prompt-pattern endpoint
 - blocklist management
 - golden set management
+- multi-policy API
+- policy versioning and activation API
+- history API
+- item-level CRUD API
 
 ## 12. Gaps Still Open
 
@@ -484,7 +488,7 @@ These are the main gaps before this should be treated as a mature production gua
 3. Multimodal guardrails are not yet defined
 4. Quick Tunnel URL is not stable infrastructure
 5. Observe-to-enforce thresholds still need evaluation against real traffic
-6. Admin storage model is still single-policy only; policy IDs, versioning, change history, and item-level CRUD are not implemented yet
+6. Admin UI still edits the active policy only; policy selection/version switching is API-first for now
 
 ## 13. Minimal Curl Set for MISO Team
 

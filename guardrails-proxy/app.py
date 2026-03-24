@@ -8,6 +8,7 @@ import unicodedata
 import uuid
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
@@ -85,6 +86,7 @@ class GuardrailsSettings:
     blocklist_path: str = os.getenv("GUARDRAILS_BLOCKLIST_PATH", "/app/config/blocklist.txt")
     config_path: str = os.getenv("GUARDRAILS_CONFIG_PATH", "/app/config/policy.json")
     golden_set_path: str = os.getenv("GUARDRAILS_GOLDEN_SET_PATH", "/app/config/golden_set.json")
+    policy_store_path: str = os.getenv("GUARDRAILS_POLICY_STORE_PATH", "/app/config/policies_store.json")
     max_input_chars: int = int(os.getenv("GUARDRAILS_MAX_INPUT_CHARS", "12000"))
     max_stream_input_chars: int = int(os.getenv("GUARDRAILS_MAX_STREAM_INPUT_CHARS", "6000"))
     max_tool_count: int = int(os.getenv("GUARDRAILS_MAX_TOOL_COUNT", "8"))
@@ -387,9 +389,243 @@ def write_lines_file(path_str: str, values: list[str]) -> None:
     path.write_text("\n".join(normalized) + ("\n" if normalized else ""), encoding="utf-8")
 
 
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def new_entry_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+def normalize_prompt_pattern_entries(values: Any) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    if not isinstance(values, list):
+        return entries
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            entries.append({"id": new_entry_id("pp"), "pattern": value.strip()})
+        elif isinstance(value, dict):
+            pattern = value.get("pattern")
+            if isinstance(pattern, str) and pattern.strip():
+                entries.append({"id": str(value.get("id") or new_entry_id("pp")), "pattern": pattern.strip()})
+    return entries
+
+
+def normalize_blocklist_entries(values: Any) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    if not isinstance(values, list):
+        return entries
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            entries.append({"id": new_entry_id("bl"), "term": value.strip()})
+        elif isinstance(value, dict):
+            term = value.get("term")
+            if isinstance(term, str) and term.strip():
+                entries.append({"id": str(value.get("id") or new_entry_id("bl")), "term": term.strip()})
+    return entries
+
+
+def normalize_golden_set_entries(values: Any) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    if not isinstance(values, list):
+        return entries
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        label = value.get("label")
+        text = value.get("text")
+        if isinstance(label, str) and label.strip() and isinstance(text, str) and text.strip():
+            entries.append(
+                {
+                    "id": str(value.get("id") or new_entry_id("gs")),
+                    "label": label.strip(),
+                    "text": text.strip(),
+                }
+            )
+    return entries
+
+
+def materialize_policy_payload(version_record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "settings_overrides": dict(version_record.get("settings_overrides", {})),
+        "prompt_injection_patterns": [item["pattern"] for item in normalize_prompt_pattern_entries(version_record.get("prompt_injection_patterns", []))],
+    }
+
+
+def materialize_blocklist_terms(version_record: dict[str, Any]) -> list[str]:
+    return [item["term"] for item in normalize_blocklist_entries(version_record.get("blocklist", []))]
+
+
+def materialize_golden_set_items(version_record: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        {"label": item["label"], "text": item["text"]}
+        for item in normalize_golden_set_entries(version_record.get("golden_set", []))
+    ]
+
+
+def build_initial_policy_store(settings: GuardrailsSettings) -> dict[str, Any]:
+    legacy_policy = load_json_file(settings.config_path, {})
+    legacy_patterns = []
+    settings_overrides: dict[str, Any] = {}
+    if isinstance(legacy_policy, dict):
+        legacy_patterns = legacy_policy.get("prompt_injection_patterns", [])
+        settings_overrides = legacy_policy.get("settings_overrides", {}) or {}
+    version_record = {
+        "version": 1,
+        "created_at": utc_now_iso(),
+        "created_by": "system",
+        "change_summary": "Bootstrapped from legacy guardrails files",
+        "settings_overrides": settings_overrides,
+        "prompt_injection_patterns": normalize_prompt_pattern_entries(legacy_patterns),
+        "blocklist": normalize_blocklist_entries(read_lines(settings.blocklist_path)),
+        "golden_set": normalize_golden_set_entries(load_json_file(settings.golden_set_path, [])),
+    }
+    return {
+        "active_policy_id": "default",
+        "active_version": 1,
+        "policies": [
+            {
+                "policy_id": "default",
+                "display_name": "Default Policy",
+                "description": "Bootstrapped from legacy guardrails files",
+                "created_at": utc_now_iso(),
+                "created_by": "system",
+                "current_version": 1,
+                "versions": [version_record],
+            }
+        ],
+        "history": [
+            {
+                "event_id": new_entry_id("hist"),
+                "timestamp": utc_now_iso(),
+                "actor": "system",
+                "policy_id": "default",
+                "version": 1,
+                "action": "bootstrap",
+                "target": "policy",
+                "summary": "Bootstrapped default policy from legacy files",
+            }
+        ],
+    }
+
+
+def get_policy_store(settings: GuardrailsSettings) -> dict[str, Any]:
+    store = load_json_file(settings.policy_store_path, {})
+    if isinstance(store, dict) and isinstance(store.get("policies"), list) and store.get("active_policy_id"):
+        store.setdefault("history", [])
+        if "active_version" not in store:
+            active_policy = next((item for item in store["policies"] if item.get("policy_id") == store["active_policy_id"]), None)
+            store["active_version"] = int(active_policy.get("current_version", 1)) if isinstance(active_policy, dict) else 1
+        return store
+    store = build_initial_policy_store(settings)
+    try:
+        write_json_file(settings.policy_store_path, store)
+    except OSError:
+        logger.warning("Failed to persist initial policy store to %s; using in-memory bootstrap", settings.policy_store_path)
+    return store
+
+
+def save_policy_store(settings: GuardrailsSettings, store: dict[str, Any]) -> None:
+    write_json_file(settings.policy_store_path, store)
+
+
+def get_policy_record(store: dict[str, Any], policy_id: str) -> dict[str, Any]:
+    for policy in store.get("policies", []):
+        if policy.get("policy_id") == policy_id:
+            return policy
+    raise HTTPException(status_code=404, detail=f"Policy not found: {policy_id}")
+
+
+def get_policy_version_record(policy: dict[str, Any], version: Optional[int] = None) -> dict[str, Any]:
+    target_version = int(version or policy.get("current_version", 1))
+    for item in policy.get("versions", []):
+        if int(item.get("version", 0)) == target_version:
+            return item
+    raise HTTPException(status_code=404, detail=f"Policy version not found: {target_version}")
+
+
+def get_active_policy_record(store: dict[str, Any]) -> dict[str, Any]:
+    return get_policy_record(store, str(store.get("active_policy_id", "default")))
+
+
+def get_active_policy_version_record(store: dict[str, Any]) -> dict[str, Any]:
+    policy = get_active_policy_record(store)
+    return get_policy_version_record(policy, int(store.get("active_version", policy.get("current_version", 1))))
+
+
+def clone_version_record(version_record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "settings_overrides": dict(version_record.get("settings_overrides", {})),
+        "prompt_injection_patterns": normalize_prompt_pattern_entries(version_record.get("prompt_injection_patterns", [])),
+        "blocklist": normalize_blocklist_entries(version_record.get("blocklist", [])),
+        "golden_set": normalize_golden_set_entries(version_record.get("golden_set", [])),
+    }
+
+
+def append_policy_history(store: dict[str, Any], *, actor: str, policy_id: str, version: int, action: str, target: str, summary: str) -> None:
+    history = store.setdefault("history", [])
+    history.append(
+        {
+            "event_id": new_entry_id("hist"),
+            "timestamp": utc_now_iso(),
+            "actor": actor,
+            "policy_id": policy_id,
+            "version": version,
+            "action": action,
+            "target": target,
+            "summary": summary,
+        }
+    )
+
+
+def create_policy_version(
+    store: dict[str, Any],
+    *,
+    policy: dict[str, Any],
+    snapshot: dict[str, Any],
+    actor: str,
+    summary: str,
+    action: str,
+    target: str,
+) -> dict[str, Any]:
+    next_version = int(policy.get("current_version", 0)) + 1
+    version_record = {
+        "version": next_version,
+        "created_at": utc_now_iso(),
+        "created_by": actor,
+        "change_summary": summary,
+        "settings_overrides": dict(snapshot.get("settings_overrides", {})),
+        "prompt_injection_patterns": normalize_prompt_pattern_entries(snapshot.get("prompt_injection_patterns", [])),
+        "blocklist": normalize_blocklist_entries(snapshot.get("blocklist", [])),
+        "golden_set": normalize_golden_set_entries(snapshot.get("golden_set", [])),
+    }
+    policy.setdefault("versions", []).append(version_record)
+    policy["current_version"] = next_version
+    if store.get("active_policy_id") == policy.get("policy_id"):
+        store["active_version"] = next_version
+    append_policy_history(
+        store,
+        actor=actor,
+        policy_id=str(policy.get("policy_id")),
+        version=next_version,
+        action=action,
+        target=target,
+        summary=summary,
+    )
+    return version_record
+
+
+def sync_legacy_files_from_store(settings: GuardrailsSettings, store: dict[str, Any]) -> None:
+    active_version = get_active_policy_version_record(store)
+    write_json_file(settings.config_path, materialize_policy_payload(active_version))
+    write_lines_file(settings.blocklist_path, materialize_blocklist_terms(active_version))
+    write_json_file(settings.golden_set_path, materialize_golden_set_items(active_version))
+
+
 def build_settings_from_sources(base_settings: Optional[GuardrailsSettings] = None) -> GuardrailsSettings:
     base_settings = base_settings or GuardrailsSettings()
-    policy = load_json_file(base_settings.config_path, {})
+    store = get_policy_store(base_settings)
+    policy = materialize_policy_payload(get_active_policy_version_record(store))
     overrides = policy.get("settings_overrides", {}) if isinstance(policy, dict) else {}
     merged = {}
     for field_name in GuardrailsSettings.__dataclass_fields__:
@@ -469,6 +705,8 @@ async def reload_runtime_state() -> None:
         await old_client.aclose()
     current_settings: Optional[GuardrailsSettings] = getattr(app.state, "settings", None)
     settings = build_settings_from_sources(current_settings)
+    store = get_policy_store(settings)
+    sync_legacy_files_from_store(settings, store)
     app.state.settings = settings
     app.state.runtime = GuardrailsRuntime(settings)
     app.state.http_client = build_http_client()
@@ -555,25 +793,39 @@ async def admin_put_config(request: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail="golden_set must be a JSON object")
 
     current_settings = get_settings()
+    store = get_policy_store(current_settings)
+    actor = get_admin_actor(request)
+    active_policy = get_active_policy_record(store)
+    active_version = get_active_policy_version_record(store)
+    snapshot = clone_version_record(active_version)
     validated_settings = {}
     for field_name, value in settings_payload.items():
         if field_name not in MUTABLE_SETTING_FIELDS:
             raise HTTPException(status_code=400, detail=f"Unsupported setting field: {field_name}")
         validated_settings[field_name] = coerce_setting_value(field_name, value, getattr(current_settings, field_name))
-
     persisted_policy = dict(policy_payload)
-    persisted_policy["settings_overrides"] = validated_settings
-    write_json_file(current_settings.config_path, persisted_policy)
+    snapshot["settings_overrides"] = validated_settings
+    snapshot["prompt_injection_patterns"] = normalize_prompt_pattern_entries(persisted_policy.get("prompt_injection_patterns", []))
     if blocklist_payload is not None:
         terms = blocklist_payload.get("terms", [])
         if not isinstance(terms, list) or any(not isinstance(term, str) for term in terms):
             raise HTTPException(status_code=400, detail="blocklist.terms must be an array of strings")
-        write_lines_file(current_settings.blocklist_path, terms)
+        snapshot["blocklist"] = normalize_blocklist_entries(terms)
     if golden_set_payload is not None:
         items = golden_set_payload.get("items", [])
         if not isinstance(items, list):
             raise HTTPException(status_code=400, detail="golden_set.items must be an array")
-        write_json_file(current_settings.golden_set_path, items)
+        snapshot["golden_set"] = normalize_golden_set_entries(items)
+    create_policy_version(
+        store,
+        policy=active_policy,
+        snapshot=snapshot,
+        actor=actor,
+        summary="Updated active policy config",
+        action="config_updated",
+        target="config",
+    )
+    save_policy_store(current_settings, store)
     await reload_runtime_state()
     return JSONResponse(content=serialize_admin_config())
 
@@ -581,8 +833,8 @@ async def admin_put_config(request: Request) -> JSONResponse:
 @app.get("/admin/blocklist")
 async def admin_get_blocklist(request: Request) -> JSONResponse:
     require_admin_api_key(request)
-    settings = get_settings()
-    return JSONResponse(content={"terms": read_lines(settings.blocklist_path)})
+    version_record = get_active_policy_version_record(get_policy_store(get_settings()))
+    return JSONResponse(content={"terms": materialize_blocklist_terms(version_record)})
 
 
 @app.put("/admin/blocklist")
@@ -593,19 +845,30 @@ async def admin_put_blocklist(request: Request) -> JSONResponse:
     if not isinstance(terms, list) or any(not isinstance(term, str) for term in terms):
         raise HTTPException(status_code=400, detail="terms must be an array of strings")
     settings = get_settings()
-    write_lines_file(settings.blocklist_path, terms)
+    store = get_policy_store(settings)
+    actor = get_admin_actor(request)
+    active_policy = get_active_policy_record(store)
+    snapshot = clone_version_record(get_active_policy_version_record(store))
+    snapshot["blocklist"] = normalize_blocklist_entries(terms)
+    create_policy_version(
+        store,
+        policy=active_policy,
+        snapshot=snapshot,
+        actor=actor,
+        summary="Replaced active blocklist",
+        action="blocklist_replaced",
+        target="blocklist",
+    )
+    save_policy_store(settings, store)
     await reload_runtime_state()
-    return JSONResponse(content={"terms": read_lines(get_settings().blocklist_path)})
+    return JSONResponse(content={"terms": materialize_blocklist_terms(get_active_policy_version_record(get_policy_store(get_settings())))})
 
 
 @app.get("/admin/prompt-patterns")
 async def admin_get_prompt_patterns(request: Request) -> JSONResponse:
     require_admin_api_key(request)
-    settings = get_settings()
-    policy = load_json_file(settings.config_path, {})
-    patterns = policy.get("prompt_injection_patterns", [])
-    if not isinstance(patterns, list):
-        patterns = []
+    version_record = get_active_policy_version_record(get_policy_store(get_settings()))
+    patterns = [item["pattern"] for item in normalize_prompt_pattern_entries(version_record.get("prompt_injection_patterns", []))]
     return JSONResponse(content={"patterns": patterns})
 
 
@@ -617,24 +880,36 @@ async def admin_put_prompt_patterns(request: Request) -> JSONResponse:
     if not isinstance(patterns, list) or any(not isinstance(pattern, str) for pattern in patterns):
         raise HTTPException(status_code=400, detail="patterns must be an array of strings")
     settings = get_settings()
-    persisted_policy = load_json_file(settings.config_path, {})
-    if not isinstance(persisted_policy, dict):
-        persisted_policy = {}
-    persisted_policy["prompt_injection_patterns"] = patterns
-    write_json_file(settings.config_path, persisted_policy)
+    store = get_policy_store(settings)
+    actor = get_admin_actor(request)
+    active_policy = get_active_policy_record(store)
+    snapshot = clone_version_record(get_active_policy_version_record(store))
+    snapshot["prompt_injection_patterns"] = normalize_prompt_pattern_entries(patterns)
+    create_policy_version(
+        store,
+        policy=active_policy,
+        snapshot=snapshot,
+        actor=actor,
+        summary="Replaced active prompt patterns",
+        action="prompt_patterns_replaced",
+        target="prompt_patterns",
+    )
+    save_policy_store(settings, store)
     await reload_runtime_state()
-    policy = load_json_file(get_settings().config_path, {})
-    reloaded_patterns = policy.get("prompt_injection_patterns", [])
-    if not isinstance(reloaded_patterns, list):
-        reloaded_patterns = []
+    reloaded_patterns = [
+        item["pattern"]
+        for item in normalize_prompt_pattern_entries(
+            get_active_policy_version_record(get_policy_store(get_settings())).get("prompt_injection_patterns", [])
+        )
+    ]
     return JSONResponse(content={"patterns": reloaded_patterns})
 
 
 @app.get("/admin/golden-set")
 async def admin_get_golden_set(request: Request) -> JSONResponse:
     require_admin_api_key(request)
-    settings = get_settings()
-    return JSONResponse(content={"items": load_json_file(settings.golden_set_path, [])})
+    version_record = get_active_policy_version_record(get_policy_store(get_settings()))
+    return JSONResponse(content={"items": materialize_golden_set_items(version_record)})
 
 
 @app.put("/admin/golden-set")
@@ -645,9 +920,408 @@ async def admin_put_golden_set(request: Request) -> JSONResponse:
     if not isinstance(items, list):
         raise HTTPException(status_code=400, detail="items must be an array")
     settings = get_settings()
-    write_json_file(settings.golden_set_path, items)
+    store = get_policy_store(settings)
+    actor = get_admin_actor(request)
+    active_policy = get_active_policy_record(store)
+    snapshot = clone_version_record(get_active_policy_version_record(store))
+    snapshot["golden_set"] = normalize_golden_set_entries(items)
+    create_policy_version(
+        store,
+        policy=active_policy,
+        snapshot=snapshot,
+        actor=actor,
+        summary="Replaced active golden set",
+        action="golden_set_replaced",
+        target="golden_set",
+    )
+    save_policy_store(settings, store)
     await reload_runtime_state()
-    return JSONResponse(content={"items": load_json_file(get_settings().golden_set_path, [])})
+    return JSONResponse(content={"items": materialize_golden_set_items(get_active_policy_version_record(get_policy_store(get_settings())))})
+
+
+@app.get("/admin/policies")
+async def admin_list_policies(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    return JSONResponse(
+        content={
+            "active_policy_id": store.get("active_policy_id"),
+            "active_version": int(store.get("active_version", 1)),
+            "items": [serialize_policy_summary(store, policy) for policy in store.get("policies", [])],
+        }
+    )
+
+
+@app.post("/admin/policies")
+async def admin_create_policy(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    policy_id = str(payload.get("policy_id", "")).strip()
+    if not policy_id:
+        raise HTTPException(status_code=400, detail="policy_id is required")
+    display_name = str(payload.get("display_name", policy_id)).strip() or policy_id
+    description = str(payload.get("description", "")).strip()
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    if any(item.get("policy_id") == policy_id for item in store.get("policies", [])):
+        raise HTTPException(status_code=409, detail=f"Policy already exists: {policy_id}")
+    source_policy = get_active_policy_record(store)
+    source_version = get_active_policy_version_record(store)
+    version_record = {
+        "version": 1,
+        "created_at": utc_now_iso(),
+        "created_by": actor,
+        "change_summary": "Created from active policy snapshot",
+        **clone_version_record(source_version),
+    }
+    new_policy = {
+        "policy_id": policy_id,
+        "display_name": display_name,
+        "description": description,
+        "created_at": utc_now_iso(),
+        "created_by": actor,
+        "current_version": 1,
+        "versions": [version_record],
+    }
+    store.setdefault("policies", []).append(new_policy)
+    append_policy_history(
+        store,
+        actor=actor,
+        policy_id=policy_id,
+        version=1,
+        action="policy_created",
+        target="policy",
+        summary=f"Created policy {policy_id} from active policy {source_policy.get('policy_id')}",
+    )
+    save_policy_store(settings, store)
+    return JSONResponse(status_code=201, content=serialize_policy_summary(store, new_policy))
+
+
+@app.get("/admin/policies/{policy_id}")
+async def admin_get_policy(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    policy = get_policy_record(store, policy_id)
+    current_version = get_policy_version_record(policy)
+    return JSONResponse(
+        content={
+            **serialize_policy_summary(store, policy),
+            "version_snapshot": serialize_version_items(current_version),
+        }
+    )
+
+
+@app.get("/admin/policies/{policy_id}/versions")
+async def admin_list_policy_versions(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    policy = get_policy_record(store, policy_id)
+    return JSONResponse(
+        content={
+            "policy_id": policy_id,
+            "versions": [
+                {
+                    "version": int(item.get("version", 0)),
+                    "created_at": item.get("created_at"),
+                    "created_by": item.get("created_by"),
+                    "change_summary": item.get("change_summary", ""),
+                }
+                for item in policy.get("versions", [])
+            ],
+        }
+    )
+
+
+@app.get("/admin/policies/{policy_id}/versions/{version}")
+async def admin_get_policy_version(request: Request, policy_id: str, version: int) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    policy = get_policy_record(store, policy_id)
+    version_record = get_policy_version_record(policy, version)
+    return JSONResponse(
+        content={
+            "policy_id": policy_id,
+            "version": version,
+            "snapshot": serialize_version_items(version_record),
+        }
+    )
+
+
+@app.post("/admin/policies/{policy_id}/activate")
+async def admin_activate_policy(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    target_version = int(payload.get("version", policy.get("current_version", 1)))
+    get_policy_version_record(policy, target_version)
+    store["active_policy_id"] = policy_id
+    store["active_version"] = target_version
+    append_policy_history(
+        store,
+        actor=actor,
+        policy_id=policy_id,
+        version=target_version,
+        action="policy_activated",
+        target="policy",
+        summary=f"Activated policy {policy_id} version {target_version}",
+    )
+    save_policy_store(settings, store)
+    await reload_runtime_state()
+    return JSONResponse(content=serialize_admin_config())
+
+
+@app.get("/admin/history")
+async def admin_get_history(request: Request) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    return JSONResponse(content={"items": list(store.get("history", []))})
+
+
+@app.get("/admin/policies/{policy_id}/history")
+async def admin_get_policy_history(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    items = [item for item in store.get("history", []) if item.get("policy_id") == policy_id]
+    return JSONResponse(content={"policy_id": policy_id, "items": items})
+
+
+@app.get("/admin/policies/{policy_id}/blocklist")
+async def admin_get_policy_blocklist(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    policy = get_policy_record(store, policy_id)
+    version = request.query_params.get("version")
+    version_record = get_policy_version_record(policy, int(version) if version else None)
+    return JSONResponse(content={"items": normalize_blocklist_entries(version_record.get("blocklist", []))})
+
+
+@app.post("/admin/policies/{policy_id}/blocklist")
+async def admin_add_policy_blocklist_entry(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    term = str(payload.get("term", "")).strip()
+    if not term:
+        raise HTTPException(status_code=400, detail="term is required")
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    entry = {"id": new_entry_id("bl"), "term": term}
+    snapshot["blocklist"].append(entry)
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Added blocklist term: {term}", action="blocklist_entry_added", target="blocklist")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(status_code=201, content={"entry": entry, "version": int(version_record["version"])})
+
+
+@app.patch("/admin/policies/{policy_id}/blocklist/{entry_id}")
+async def admin_update_policy_blocklist_entry(request: Request, policy_id: str, entry_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    term = str(payload.get("term", "")).strip()
+    if not term:
+        raise HTTPException(status_code=400, detail="term is required")
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    updated = None
+    for item in snapshot["blocklist"]:
+        if item["id"] == entry_id:
+            item["term"] = term
+            updated = item
+            break
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Blocklist entry not found: {entry_id}")
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Updated blocklist entry {entry_id}", action="blocklist_entry_updated", target="blocklist")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(content={"entry": updated, "version": int(version_record["version"])})
+
+
+@app.delete("/admin/policies/{policy_id}/blocklist/{entry_id}")
+async def admin_delete_policy_blocklist_entry(request: Request, policy_id: str, entry_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    remaining = [item for item in snapshot["blocklist"] if item["id"] != entry_id]
+    if len(remaining) == len(snapshot["blocklist"]):
+        raise HTTPException(status_code=404, detail=f"Blocklist entry not found: {entry_id}")
+    snapshot["blocklist"] = remaining
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Deleted blocklist entry {entry_id}", action="blocklist_entry_deleted", target="blocklist")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(content={"deleted_id": entry_id, "version": int(version_record["version"])})
+
+
+@app.get("/admin/policies/{policy_id}/prompt-patterns")
+async def admin_get_policy_prompt_patterns(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    policy = get_policy_record(store, policy_id)
+    version = request.query_params.get("version")
+    version_record = get_policy_version_record(policy, int(version) if version else None)
+    return JSONResponse(content={"items": normalize_prompt_pattern_entries(version_record.get("prompt_injection_patterns", []))})
+
+
+@app.post("/admin/policies/{policy_id}/prompt-patterns")
+async def admin_add_policy_prompt_pattern(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    pattern = str(payload.get("pattern", "")).strip()
+    if not pattern:
+        raise HTTPException(status_code=400, detail="pattern is required")
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    entry = {"id": new_entry_id("pp"), "pattern": pattern}
+    snapshot["prompt_injection_patterns"].append(entry)
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Added prompt pattern: {pattern}", action="prompt_pattern_added", target="prompt_patterns")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(status_code=201, content={"entry": entry, "version": int(version_record["version"])})
+
+
+@app.patch("/admin/policies/{policy_id}/prompt-patterns/{entry_id}")
+async def admin_update_policy_prompt_pattern(request: Request, policy_id: str, entry_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    pattern = str(payload.get("pattern", "")).strip()
+    if not pattern:
+        raise HTTPException(status_code=400, detail="pattern is required")
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    updated = None
+    for item in snapshot["prompt_injection_patterns"]:
+        if item["id"] == entry_id:
+            item["pattern"] = pattern
+            updated = item
+            break
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Prompt pattern entry not found: {entry_id}")
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Updated prompt pattern entry {entry_id}", action="prompt_pattern_updated", target="prompt_patterns")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(content={"entry": updated, "version": int(version_record["version"])})
+
+
+@app.delete("/admin/policies/{policy_id}/prompt-patterns/{entry_id}")
+async def admin_delete_policy_prompt_pattern(request: Request, policy_id: str, entry_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    remaining = [item for item in snapshot["prompt_injection_patterns"] if item["id"] != entry_id]
+    if len(remaining) == len(snapshot["prompt_injection_patterns"]):
+        raise HTTPException(status_code=404, detail=f"Prompt pattern entry not found: {entry_id}")
+    snapshot["prompt_injection_patterns"] = remaining
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Deleted prompt pattern entry {entry_id}", action="prompt_pattern_deleted", target="prompt_patterns")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(content={"deleted_id": entry_id, "version": int(version_record["version"])})
+
+
+@app.get("/admin/policies/{policy_id}/golden-set")
+async def admin_get_policy_golden_set(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    store = get_policy_store(get_settings())
+    policy = get_policy_record(store, policy_id)
+    version = request.query_params.get("version")
+    version_record = get_policy_version_record(policy, int(version) if version else None)
+    return JSONResponse(content={"items": normalize_golden_set_entries(version_record.get("golden_set", []))})
+
+
+@app.post("/admin/policies/{policy_id}/golden-set")
+async def admin_add_policy_golden_set_entry(request: Request, policy_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    label = str(payload.get("label", "")).strip()
+    text = str(payload.get("text", "")).strip()
+    if not label or not text:
+        raise HTTPException(status_code=400, detail="label and text are required")
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    entry = {"id": new_entry_id("gs"), "label": label, "text": text}
+    snapshot["golden_set"].append(entry)
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Added golden set entry {label}", action="golden_set_entry_added", target="golden_set")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(status_code=201, content={"entry": entry, "version": int(version_record["version"])})
+
+
+@app.patch("/admin/policies/{policy_id}/golden-set/{entry_id}")
+async def admin_update_policy_golden_set_entry(request: Request, policy_id: str, entry_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    payload = await parse_admin_json(request)
+    label = str(payload.get("label", "")).strip()
+    text = str(payload.get("text", "")).strip()
+    if not label or not text:
+        raise HTTPException(status_code=400, detail="label and text are required")
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    updated = None
+    for item in snapshot["golden_set"]:
+        if item["id"] == entry_id:
+            item["label"] = label
+            item["text"] = text
+            updated = item
+            break
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Golden set entry not found: {entry_id}")
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Updated golden set entry {entry_id}", action="golden_set_entry_updated", target="golden_set")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(content={"entry": updated, "version": int(version_record["version"])})
+
+
+@app.delete("/admin/policies/{policy_id}/golden-set/{entry_id}")
+async def admin_delete_policy_golden_set_entry(request: Request, policy_id: str, entry_id: str) -> JSONResponse:
+    require_admin_api_key(request)
+    actor = get_admin_actor(request)
+    settings = get_settings()
+    store = get_policy_store(settings)
+    policy = get_policy_record(store, policy_id)
+    snapshot = clone_version_record(get_policy_version_record(policy))
+    remaining = [item for item in snapshot["golden_set"] if item["id"] != entry_id]
+    if len(remaining) == len(snapshot["golden_set"]):
+        raise HTTPException(status_code=404, detail=f"Golden set entry not found: {entry_id}")
+    snapshot["golden_set"] = remaining
+    version_record = create_policy_version(store, policy=policy, snapshot=snapshot, actor=actor, summary=f"Deleted golden set entry {entry_id}", action="golden_set_entry_deleted", target="golden_set")
+    save_policy_store(settings, store)
+    if store.get("active_policy_id") == policy_id:
+        await reload_runtime_state()
+    return JSONResponse(content={"deleted_id": entry_id, "version": int(version_record["version"])})
 
 
 @app.post("/admin/reload")
@@ -1291,16 +1965,50 @@ async def parse_admin_json(request: Request) -> dict[str, Any]:
     return payload
 
 
+def get_admin_actor(request: Request) -> str:
+    actor = request.headers.get("X-Admin-Actor", "").strip()
+    return actor or "admin"
+
+
+def serialize_version_items(version_record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "settings_overrides": dict(version_record.get("settings_overrides", {})),
+        "prompt_injection_patterns": normalize_prompt_pattern_entries(version_record.get("prompt_injection_patterns", [])),
+        "blocklist": normalize_blocklist_entries(version_record.get("blocklist", [])),
+        "golden_set": normalize_golden_set_entries(version_record.get("golden_set", [])),
+    }
+
+
+def serialize_policy_summary(store: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "policy_id": policy.get("policy_id"),
+        "display_name": policy.get("display_name"),
+        "description": policy.get("description", ""),
+        "current_version": int(policy.get("current_version", 1)),
+        "is_active": store.get("active_policy_id") == policy.get("policy_id"),
+        "active_version": int(store.get("active_version", 1)) if store.get("active_policy_id") == policy.get("policy_id") else None,
+        "created_at": policy.get("created_at"),
+        "created_by": policy.get("created_by"),
+    }
+
+
 def serialize_admin_config() -> dict[str, Any]:
     settings = get_settings()
-    runtime = get_runtime()
-    policy = dict(runtime.config)
+    store = get_policy_store(settings)
+    active_policy = get_active_policy_record(store)
+    active_version = get_active_policy_version_record(store)
+    policy = materialize_policy_payload(active_version)
     policy.pop("settings_overrides", None)
     return {
+        "meta": {
+            "active_policy_id": store.get("active_policy_id"),
+            "active_version": int(store.get("active_version", active_policy.get("current_version", 1))),
+            "current_policy_version": int(active_policy.get("current_version", 1)),
+        },
         "settings": settings.admin_settings_payload(),
         "policy": policy,
-        "blocklist": {"terms": read_lines(settings.blocklist_path)},
-        "golden_set": {"items": load_json_file(settings.golden_set_path, [])},
+        "blocklist": {"terms": materialize_blocklist_terms(active_version)},
+        "golden_set": {"items": materialize_golden_set_items(active_version)},
     }
 
 
