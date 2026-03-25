@@ -81,6 +81,11 @@ Guardrails note:
 | `GET` | `/guardrails-admin/policies/{policy_id}/history` | 정책별 변경 이력 조회 |
 | `POST` | `/guardrails-admin/reload` | 파일 기준 런타임 reload |
 
+현재 동작 요약:
+- `config`, `blocklist`, `prompt-patterns`, `golden-set`의 레거시 endpoint는 항상 **active policy / active version** 기준으로 동작
+- 정책 생성/버전 증가/항목 CRUD는 `policies/*` API에서 수행
+- 활성 정책 전환 후 `/config` 전체 조회 결과도 즉시 해당 정책 기준으로 바뀜
+
 ## 3.2) Standalone Guardrails Check API
 
 용도:
@@ -120,6 +125,11 @@ API 목록:
 
 ```json
 {
+  "meta": {
+    "active_policy_id": "default",
+    "active_version": 4,
+    "current_policy_version": 4
+  },
   "settings": {
     "analyzer_timeout_seconds": 1.5,
     "fail_open_on_analyzer_timeout": true,
@@ -148,15 +158,18 @@ API 목록:
   "policy": {
     "prompt_injection_patterns": [
       "ignore\\s+(all\\s+)?previous\\s+instructions",
+      "disregard\\s+(all\\s+)?(previous|above)\\s+instructions",
       "reveal\\s+(the\\s+)?system\\s+prompt",
-      "show\\s+(the\\s+)?developer\\s+message",
-      "bypass\\s+(all\\s+)?safety"
+      "(show|print|dump)\\s+(the\\s+)?(hidden|internal)\\s+(prompt|instructions)",
+      "(leak|dump|exfiltrate)\\s+(all\\s+)?(secrets|credentials|tokens?)"
     ]
   }
 }
 ```
 
 서식 규칙:
+- `meta`는 read-only
+- `meta.active_policy_id`, `meta.active_version`은 현재 runtime 기준 활성 정책/버전
 - `settings`는 mutable guardrails 필드만 허용
 - `phase2_mode`, `phase3_mode`는 현재 `observe` 또는 `enforce`
 - `policy.prompt_injection_patterns`는 regex string 배열
@@ -167,8 +180,10 @@ API 목록:
 {
   "terms": [
     "ignore previous instructions",
+    "disregard previous instructions",
     "reveal the system prompt",
-    "show the developer message"
+    "show the developer message",
+    "show the api key"
   ]
 }
 ```
@@ -232,6 +247,47 @@ API 목록:
 }
 ```
 
+`GET /guardrails-admin/policies/{policy_id}/versions`
+
+```json
+{
+  "policy_id": "customer-a",
+  "versions": [
+    {
+      "version": 1,
+      "created_at": "2026-03-24T03:00:00+00:00",
+      "created_by": "admin",
+      "change_summary": "Created from active policy snapshot"
+    },
+    {
+      "version": 2,
+      "created_at": "2026-03-24T03:10:00+00:00",
+      "created_by": "admin",
+      "change_summary": "Added blocklist term: show the api key"
+    }
+  ]
+}
+```
+
+`GET /guardrails-admin/history`
+
+```json
+{
+  "items": [
+    {
+      "event_id": "hist_123456789abc",
+      "timestamp": "2026-03-24T03:10:00+00:00",
+      "actor": "admin",
+      "policy_id": "customer-a",
+      "version": 2,
+      "action": "blocklist_entry_added",
+      "target": "blocklist",
+      "summary": "Added blocklist term: show the api key"
+    }
+  ]
+}
+```
+
 항목 단위 CRUD 예시:
 
 `POST /guardrails-admin/policies/{policy_id}/blocklist`
@@ -264,6 +320,17 @@ API 목록:
 {
   "label": "allowed_helpdesk",
   "text": "계정 비밀번호 초기화 절차를 안내해줘."
+}
+```
+
+`DELETE /guardrails-admin/policies/{policy_id}/blocklist/{entry_id}`
+
+응답 예시:
+
+```json
+{
+  "deleted_id": "bl_123456789abc",
+  "version": 4
 }
 ```
 
@@ -308,6 +375,8 @@ UI 필드 가이드:
 
 ```json
 {
+  "policy_id": "customer-a",
+  "policy_version": 3,
   "messages": [
     {"role": "user", "content": "사용자 입력 텍스트"}
   ],
@@ -324,6 +393,7 @@ or
 
 ```json
 {
+  "policy_id": "customer-a",
   "text": "plain text only payload",
   "stream": false,
   "metadata": {
@@ -337,6 +407,7 @@ or
 
 ```json
 {
+  "policy_id": "customer-a",
   "text": "모델 출력 텍스트",
   "metadata": {
     "conversation_id": "abc-123",
@@ -349,6 +420,7 @@ or OpenAI-style response body:
 
 ```json
 {
+  "policy_id": "customer-a",
   "response": {
     "choices": [
       {
@@ -366,6 +438,7 @@ or OpenAI-style response body:
 
 ```json
 {
+  "policy_id": "customer-a",
   "direction": "input",
   "text": "generic text payload"
 }
@@ -406,10 +479,17 @@ Standalone response shape:
   },
   "metadata": {
     "conversation_id": "abc-123",
-    "flow": "miso-input"
+    "flow": "miso-input",
+    "applied_policy_id": "customer-a",
+    "applied_policy_version": 3
   }
 }
 ```
+
+Standalone policy selection rules:
+- `policy_id` is optional. When omitted, the runtime active policy is used.
+- `policy_version` is optional. When omitted, the current version of the requested `policy_id` is used.
+- For MISO app-by-app guardrails control, send `policy_id` explicitly on every `/guardrails/*` request.
 
 결과 해석:
 

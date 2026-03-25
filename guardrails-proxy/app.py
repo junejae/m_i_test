@@ -365,6 +365,17 @@ class GuardrailsRuntime:
             return fallback
 
 
+@dataclass
+class GuardrailsPolicyContext:
+    policy_id: str
+    policy_version: int
+    settings: GuardrailsSettings
+    runtime: GuardrailsRuntime
+    blocklist: BlocklistMatcher
+    prompt_injection_patterns: list[re.Pattern[str]]
+    golden_set: list[dict[str, str]]
+
+
 def load_json_file(path_str: str, fallback: Any) -> Any:
     path = Path(path_str)
     if not path.exists():
@@ -634,6 +645,62 @@ def build_settings_from_sources(base_settings: Optional[GuardrailsSettings] = No
         if field_name in MUTABLE_SETTING_FIELDS:
             merged[field_name] = coerce_setting_value(field_name, value, merged[field_name])
     return GuardrailsSettings(**merged)
+
+
+def build_settings_from_version_record(base_settings: GuardrailsSettings, version_record: dict[str, Any]) -> GuardrailsSettings:
+    policy = materialize_policy_payload(version_record)
+    overrides = policy.get("settings_overrides", {}) if isinstance(policy, dict) else {}
+    merged = {field_name: getattr(base_settings, field_name) for field_name in GuardrailsSettings.__dataclass_fields__}
+    for field_name, value in overrides.items():
+        if field_name in MUTABLE_SETTING_FIELDS:
+            merged[field_name] = coerce_setting_value(field_name, value, merged[field_name])
+    return GuardrailsSettings(**merged)
+
+
+def resolve_request_policy_context(payload: dict[str, Any]) -> GuardrailsPolicyContext:
+    base_settings = get_settings()
+    runtime = get_runtime()
+    store = get_policy_store(base_settings)
+    metadata = payload.get("metadata")
+
+    policy_id = payload.get("policy_id")
+    if not isinstance(policy_id, str) or not policy_id.strip():
+        policy_id = metadata.get("policy_id") if isinstance(metadata, dict) else None
+    policy_version = payload.get("policy_version")
+    if policy_version is None and isinstance(metadata, dict):
+        policy_version = metadata.get("policy_version")
+
+    target_version: Optional[int] = None
+    if policy_version is not None:
+        try:
+            target_version = int(policy_version)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="policy_version must be an integer") from exc
+
+    if isinstance(policy_id, str) and policy_id.strip():
+        policy = get_policy_record(store, policy_id.strip())
+        version_record = get_policy_version_record(policy, target_version)
+    else:
+        policy = get_active_policy_record(store)
+        version_record = get_policy_version_record(policy, target_version) if target_version is not None else get_active_policy_version_record(store)
+
+    settings = build_settings_from_version_record(base_settings, version_record)
+    blocklist_terms = materialize_blocklist_terms(version_record)
+    prompt_patterns = [
+        re.compile(pattern, re.IGNORECASE)
+        for pattern in materialize_policy_payload(version_record).get("prompt_injection_patterns", [])
+    ]
+    if not prompt_patterns:
+        prompt_patterns = runtime.prompt_injection_patterns
+    return GuardrailsPolicyContext(
+        policy_id=str(policy.get("policy_id")),
+        policy_version=int(version_record.get("version", policy.get("current_version", 1))),
+        settings=settings,
+        runtime=runtime,
+        blocklist=BlocklistMatcher(blocklist_terms or runtime.blocklist.terms),
+        prompt_injection_patterns=prompt_patterns,
+        golden_set=materialize_golden_set_items(version_record),
+    )
 
 
 def coerce_setting_value(field_name: str, value: Any, current_value: Any) -> Any:
@@ -1354,7 +1421,8 @@ async def guardrails_input_check(request: Request) -> JSONResponse:
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     try:
         payload = await parse_standalone_json(request, request_id)
-        normalized = normalize_standalone_input_payload(payload)
+        policy_context = resolve_request_policy_context(payload)
+        normalized = normalize_standalone_input_payload(payload, settings=policy_context.settings)
     except ValueError as exc:
         return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
     result = await evaluate_input_guardrails(
@@ -1365,6 +1433,7 @@ async def guardrails_input_check(request: Request) -> JSONResponse:
         request_id=request_id,
         slot="guardrails-input",
         path="/guardrails/input/check",
+        policy_context=policy_context,
     )
     body = serialize_guardrails_result(
         request_id=request_id,
@@ -1376,7 +1445,11 @@ async def guardrails_input_check(request: Request) -> JSONResponse:
             "message_count": len(normalized["payload"].get("messages", [])),
             "tool_count": len(normalized["payload"].get("tools", [])),
         },
-        metadata=payload.get("metadata"),
+        metadata={
+            **(payload.get("metadata") or {}),
+            "applied_policy_id": policy_context.policy_id,
+            "applied_policy_version": policy_context.policy_version,
+        },
     )
     return JSONResponse(status_code=200, content=body)
 
@@ -1386,6 +1459,7 @@ async def guardrails_output_check(request: Request) -> JSONResponse:
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     try:
         payload = await parse_standalone_json(request, request_id)
+        policy_context = resolve_request_policy_context(payload)
         normalized_text = extract_output_check_text(payload)
     except ValueError as exc:
         return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
@@ -1394,13 +1468,18 @@ async def guardrails_output_check(request: Request) -> JSONResponse:
         request_id=request_id,
         slot="guardrails-output",
         path="/guardrails/output/check",
+        policy_context=policy_context,
     )
     body = serialize_guardrails_result(
         request_id=request_id,
         stage="output",
         result=result,
         normalized={"text": normalized_text},
-        metadata=payload.get("metadata"),
+        metadata={
+            **(payload.get("metadata") or {}),
+            "applied_policy_id": policy_context.policy_id,
+            "applied_policy_version": policy_context.policy_version,
+        },
     )
     return JSONResponse(status_code=200, content=body)
 
@@ -1428,7 +1507,8 @@ async def guardrails_text_check(request: Request) -> JSONResponse:
         )
     if direction == "input":
         try:
-            normalized = normalize_standalone_input_payload(payload)
+            policy_context = resolve_request_policy_context(payload)
+            normalized = normalize_standalone_input_payload(payload, settings=policy_context.settings)
         except ValueError as exc:
             return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
         result = await evaluate_input_guardrails(
@@ -1439,6 +1519,7 @@ async def guardrails_text_check(request: Request) -> JSONResponse:
             request_id=request_id,
             slot="guardrails-text-input",
             path="/guardrails/text/check",
+            policy_context=policy_context,
         )
         body = serialize_guardrails_result(
             request_id=request_id,
@@ -1450,11 +1531,16 @@ async def guardrails_text_check(request: Request) -> JSONResponse:
                 "message_count": len(normalized["payload"].get("messages", [])),
                 "tool_count": len(normalized["payload"].get("tools", [])),
             },
-            metadata=payload.get("metadata"),
+            metadata={
+                **(payload.get("metadata") or {}),
+                "applied_policy_id": policy_context.policy_id,
+                "applied_policy_version": policy_context.policy_version,
+            },
         )
         return JSONResponse(status_code=200, content=body)
 
     try:
+        policy_context = resolve_request_policy_context(payload)
         normalized_text = extract_output_check_text(payload)
     except ValueError as exc:
         return blocked_response("MALFORMED_INPUT", request_id, 400, detail=str(exc))
@@ -1463,13 +1549,18 @@ async def guardrails_text_check(request: Request) -> JSONResponse:
         request_id=request_id,
         slot="guardrails-text-output",
         path="/guardrails/text/check",
+        policy_context=policy_context,
     )
     body = serialize_guardrails_result(
         request_id=request_id,
         stage="output",
         result=result,
         normalized={"text": normalized_text},
-        metadata=payload.get("metadata"),
+        metadata={
+            **(payload.get("metadata") or {}),
+            "applied_policy_id": policy_context.policy_id,
+            "applied_policy_version": policy_context.policy_version,
+        },
     )
     return JSONResponse(status_code=200, content=body)
 
@@ -1521,7 +1612,7 @@ async def parse_standalone_json(request: Request, request_id: str) -> dict[str, 
     return payload
 
 
-def normalize_standalone_input_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def normalize_standalone_input_payload(payload: dict[str, Any], settings: Optional[GuardrailsSettings] = None) -> dict[str, Any]:
     messages = payload.get("messages")
     text = payload.get("text")
     role = str(payload.get("role", "user"))
@@ -1538,7 +1629,7 @@ def normalize_standalone_input_payload(payload: dict[str, Any]) -> dict[str, Any
     if "tools" in payload:
         candidate_payload["tools"] = tools
     text_segments: list[str] = []
-    normalized_payload = normalize_chat_payload(candidate_payload, text_segments)
+    normalized_payload = normalize_chat_payload(candidate_payload, text_segments, settings=settings)
     input_text = "\n".join(segment for segment in text_segments if segment).strip()
     return {
         "payload": normalized_payload,
@@ -1567,15 +1658,20 @@ async def evaluate_input_guardrails(
     request_id: str,
     slot: str,
     path: str,
+    policy_context: Optional[GuardrailsPolicyContext] = None,
 ) -> dict[str, Any]:
-    runtime = get_runtime()
+    policy_context = policy_context or resolve_request_policy_context({})
+    settings = policy_context.settings
+    runtime = policy_context.runtime
     runtime.metrics.inc_request()
-    phase1_result = run_phase1_input_checks(normalized_payload, input_text, stream, rate_key)
+    phase1_result = run_phase1_input_checks(normalized_payload, input_text, stream, rate_key, policy_context=policy_context)
     audit = {
         "request_id": request_id,
         "slot": slot,
         "path": path,
         "stream": stream,
+        "policy_id": policy_context.policy_id,
+        "policy_version": policy_context.policy_version,
         "phase1": phase1_result,
         "phase2": {},
         "phase3": {},
@@ -1602,7 +1698,7 @@ async def evaluate_input_guardrails(
             "audit": audit,
         }
 
-    phase2_result = await run_phase2_input_checks(input_text, request_id)
+    phase2_result = await run_phase2_input_checks(input_text, request_id, policy_context=policy_context)
     audit["phase2"] = phase2_result
     runtime.metrics.inc_phase("phase2")
 
@@ -1613,7 +1709,7 @@ async def evaluate_input_guardrails(
     final_action = resolve_semantic_action(
         phase2_result=phase2_result,
         phase3_result=phase3_result,
-        phase_mode=get_settings().phase3_mode,
+        phase_mode=settings.phase3_mode,
     )
     audit["final_action"] = final_action["action"]
     audit["reason_code"] = final_action["reason_code"]
@@ -1638,15 +1734,19 @@ async def evaluate_output_guardrails(
     request_id: str,
     slot: str,
     path: str,
+    policy_context: Optional[GuardrailsPolicyContext] = None,
 ) -> dict[str, Any]:
-    settings = get_settings()
-    runtime = get_runtime()
+    policy_context = policy_context or resolve_request_policy_context({})
+    settings = policy_context.settings
+    runtime = policy_context.runtime
     runtime.metrics.inc_request()
     audit = {
         "request_id": request_id,
         "slot": slot,
         "path": path,
         "stream": False,
+        "policy_id": policy_context.policy_id,
+        "policy_version": policy_context.policy_version,
         "phase1": {},
         "phase2": {},
         "phase3": {},
@@ -1672,7 +1772,7 @@ async def evaluate_output_guardrails(
             "audit": audit,
         }
 
-    matches = runtime.blocklist.find_matches(output_text)
+    matches = policy_context.blocklist.find_matches(output_text)
     if matches and settings.output_blocklist_enforce:
         reason_code = "BLOCKLIST_MATCH"
         audit["final_action"] = "block"
@@ -1689,7 +1789,7 @@ async def evaluate_output_guardrails(
             "audit": audit,
         }
 
-    phase2_result = await run_phase2_input_checks(output_text, request_id)
+    phase2_result = await run_phase2_input_checks(output_text, request_id, policy_context=policy_context)
     phase3_result = run_phase3_decision(phase2_result)
     audit["phase2"] = phase2_result
     audit["phase3"] = phase3_result
@@ -1765,8 +1865,8 @@ def serialize_guardrails_result(
     }
 
 
-def normalize_chat_payload(payload: dict[str, Any], text_segments: list[str]) -> dict[str, Any]:
-    settings = get_settings()
+def normalize_chat_payload(payload: dict[str, Any], text_segments: list[str], settings: Optional[GuardrailsSettings] = None) -> dict[str, Any]:
+    settings = settings or get_settings()
     messages = payload.get("messages")
     if not isinstance(messages, list) or not messages:
         raise ValueError("messages must be a non-empty array")
@@ -1810,9 +1910,14 @@ def normalize_chat_payload(payload: dict[str, Any], text_segments: list[str]) ->
     return normalized_payload
 
 
-async def run_phase2_input_checks(text: str, request_id: str) -> dict[str, Any]:
-    settings = get_settings()
-    runtime = get_runtime()
+async def run_phase2_input_checks(
+    text: str,
+    request_id: str,
+    policy_context: Optional[GuardrailsPolicyContext] = None,
+) -> dict[str, Any]:
+    policy_context = policy_context or resolve_request_policy_context({})
+    settings = policy_context.settings
+    runtime = policy_context.runtime
     if not settings.phase2_enabled or not text.strip():
         return {"mode": settings.phase2_mode, "pii": {}, "toxicity": {}, "relevance": {}, "timeouts": [], "errors": []}
 
@@ -1831,7 +1936,7 @@ async def run_phase2_input_checks(text: str, request_id: str) -> dict[str, Any]:
             return name, {"enabled": False, "error": str(exc)}
 
     client = get_http_client()
-    relevance_analyzer = RelevanceAnalyzer(settings, runtime.golden_set)
+    relevance_analyzer = RelevanceAnalyzer(settings, policy_context.golden_set)
     tasks = [
         run_with_timeout("pii", asyncio.to_thread(runtime.pii_analyzer.analyze, text)),
         run_with_timeout("toxicity", asyncio.to_thread(runtime.toxicity_analyzer.analyze, text)),
@@ -1863,9 +1968,16 @@ async def run_output_checks(content: bytes, request_id: str, slot: str, path: st
     return await evaluate_output_guardrails(output_text, request_id, slot=slot, path=path)
 
 
-def run_phase1_input_checks(payload: dict[str, Any], input_text: str, stream: bool, rate_key: str) -> dict[str, Any]:
-    settings = get_settings()
-    runtime = get_runtime()
+def run_phase1_input_checks(
+    payload: dict[str, Any],
+    input_text: str,
+    stream: bool,
+    rate_key: str,
+    policy_context: Optional[GuardrailsPolicyContext] = None,
+) -> dict[str, Any]:
+    policy_context = policy_context or resolve_request_policy_context({})
+    settings = policy_context.settings
+    runtime = policy_context.runtime
     if not settings.phase1_enabled:
         return {"action": "pass", "reason_code": None, "detail": "phase1_disabled"}
     if is_rate_limited(rate_key):
@@ -1874,10 +1986,10 @@ def run_phase1_input_checks(payload: dict[str, Any], input_text: str, stream: bo
     limit = settings.max_stream_input_chars if stream else settings.max_input_chars
     if len(input_text) > limit:
         return {"action": "block", "reason_code": "INPUT_TOO_LONG", "detail": f"Input exceeded max chars {limit}"}
-    matches = runtime.blocklist.find_matches(input_text)
+    matches = policy_context.blocklist.find_matches(input_text)
     if matches:
         return {"action": "block", "reason_code": "BLOCKLIST_MATCH", "detail": f"Input matched blocklist terms: {', '.join(matches[:5])}"}
-    for pattern in runtime.prompt_injection_patterns:
+    for pattern in policy_context.prompt_injection_patterns:
         if pattern.search(input_text):
             return {"action": "block", "reason_code": "PROMPT_INJECTION_PATTERN", "detail": f"Input matched pattern {pattern.pattern}"}
     if payload.get("stream") and payload.get("tools") and len(payload.get("tools", [])) > max(1, settings.max_tool_count // 2):

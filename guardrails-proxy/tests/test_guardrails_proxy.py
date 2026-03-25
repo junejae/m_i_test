@@ -460,7 +460,7 @@ async def test_standalone_text_check_supports_output_response_shape() -> None:
 async def test_standalone_input_check_can_return_observe_when_phase3_flags_gray() -> None:
     original = guardrails_app.run_phase2_input_checks
 
-    async def fake_phase2(text: str, request_id: str) -> dict[str, object]:
+    async def fake_phase2(text: str, request_id: str, policy_context: object | None = None) -> dict[str, object]:
         return {
             "mode": "observe",
             "pii": {"enabled": True, "results": [{"entity_type": "EMAIL_ADDRESS", "start": 0, "end": 10, "score": 0.9}]},
@@ -485,6 +485,107 @@ async def test_standalone_input_check_can_return_observe_when_phase3_flags_gray(
     payload = response.json()
     assert payload["action"] == "observe"
     assert payload["reason_code"] == "PII_DETECTED"
+
+
+@pytest.mark.anyio
+async def test_standalone_input_check_uses_requested_policy_without_activation() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        create_response = await client.post(
+            "/admin/policies",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"policy_id": "customer-b", "display_name": "Customer B"},
+        )
+        assert create_response.status_code == 201
+
+        add_response = await client.post(
+            "/admin/policies/customer-b/blocklist",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"term": "customer-b-forbidden"},
+        )
+        assert add_response.status_code == 201
+
+        active_response = await client.get("/admin/config", headers={"X-Admin-API-Key": "admin-secret"})
+        assert active_response.status_code == 200
+        assert active_response.json()["meta"]["active_policy_id"] == "default"
+
+        raw_allow = await client.post(
+            "/guardrails/input/check",
+            json={
+                "messages": [{"role": "user", "content": "customer-b-forbidden phrase"}],
+                "stream": False,
+            },
+        )
+        targeted_block = await client.post(
+            "/guardrails/input/check",
+            json={
+                "policy_id": "customer-b",
+                "messages": [{"role": "user", "content": "customer-b-forbidden phrase"}],
+                "stream": False,
+            },
+        )
+
+    assert raw_allow.status_code == 200
+    assert raw_allow.json()["action"] == "allow"
+    assert targeted_block.status_code == 200
+    assert targeted_block.json()["action"] == "block"
+    assert targeted_block.json()["reason_code"] == "BLOCKLIST_MATCH"
+    assert targeted_block.json()["metadata"]["applied_policy_id"] == "customer-b"
+
+
+@pytest.mark.anyio
+async def test_standalone_check_can_pin_policy_version() -> None:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        create_response = await client.post(
+            "/admin/policies",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"policy_id": "customer-c", "display_name": "Customer C"},
+        )
+        assert create_response.status_code == 201
+
+        add_response = await client.post(
+            "/admin/policies/customer-c/prompt-patterns",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"pattern": "do\\s+custom\\s+customer\\s+c\\s+ritual"},
+        )
+        assert add_response.status_code == 201
+        entry_id = add_response.json()["entry"]["id"]
+
+        update_response = await client.patch(
+            f"/admin/policies/customer-c/prompt-patterns/{entry_id}",
+            headers={"X-Admin-API-Key": "admin-secret", "X-Admin-Actor": "miso-admin"},
+            json={"pattern": "extract\\s+customer\\s+c\\s+tokens"},
+        )
+        assert update_response.status_code == 200
+
+        version_two_phrase = "please do custom customer c ritual now"
+        version_three_phrase = "please do custom customer c ritual now"
+
+        version_two_check = await client.post(
+            "/guardrails/input/check",
+            json={
+                "policy_id": "customer-c",
+                "policy_version": 2,
+                "messages": [{"role": "user", "content": version_two_phrase}],
+            },
+        )
+        version_three_check = await client.post(
+            "/guardrails/input/check",
+            json={
+                "policy_id": "customer-c",
+                "policy_version": 3,
+                "messages": [{"role": "user", "content": version_three_phrase}],
+            },
+        )
+
+    assert version_two_check.status_code == 200
+    assert version_two_check.json()["action"] == "block"
+    assert version_two_check.json()["reason_code"] == "PROMPT_INJECTION_PATTERN"
+    assert version_two_check.json()["metadata"]["applied_policy_version"] == 2
+    assert version_three_check.status_code == 200
+    assert version_three_check.json()["action"] == "allow"
+    assert version_three_check.json()["metadata"]["applied_policy_version"] == 3
 
 
 @pytest.mark.anyio

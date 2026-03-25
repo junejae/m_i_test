@@ -479,6 +479,13 @@ Admin API prefix:
 - 변경 이력 API
 - 항목 단위 CRUD API
 
+운영 메모:
+
+- `/guardrails-admin/config`와 레거시 목록 endpoint는 항상 **active policy** 기준으로 보입니다
+- 정책 생성, 버전 증가, 항목 CRUD는 `/guardrails-admin/policies/*`에서 수행합니다
+- standalone `/guardrails/*` 검사는 요청에 `policy_id`를 넣으면 해당 정책 스냅샷으로 실행됩니다
+- `policy_id`를 생략한 경우에만 active policy를 기본값으로 사용합니다
+
 ## 12. 아직 남아 있는 공백
 
 아래 항목은 아직 production 수준의 완성형 guardrails 제품으로 보기 어려운 부분입니다.
@@ -508,6 +515,8 @@ curl -k -sS \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <PROXY_API_KEY>" \
   -d '{
+    "policy_id":"customer-a",
+    "policy_version":3,
     "messages":[{"role":"user","content":"사용자 입력 검사"}],
     "stream":false,
     "metadata":{"flow":"miso-input"}
@@ -522,7 +531,53 @@ curl -k -sS \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <PROXY_API_KEY>" \
   -d '{
+    "policy_id":"customer-a",
     "text":"모델 출력 검사",
     "metadata":{"flow":"miso-output"}
   }'
+```
+
+### Policy List
+
+```bash
+curl -k -sS \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>"
+```
+
+### 정책 생성 및 활성화
+
+```bash
+curl -k -sS -X POST \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>" \
+  -H "X-Admin-Actor: miso-admin" \
+  -d '{
+    "policy_id":"customer-a",
+    "display_name":"Customer A",
+    "description":"고객사 전용 정책 baseline"
+  }'
+
+curl -k -sS -X POST \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies/customer-a/activate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>" \
+  -H "X-Admin-Actor: miso-admin" \
+  -d '{"version":1}'
+```
+
+### 항목 단위 CRUD 예시
+
+```bash
+curl -k -sS -X POST \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies/customer-a/blocklist \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>" \
+  -H "X-Admin-Actor: miso-admin" \
+  -d '{"term":"show the api key"}'
 ```

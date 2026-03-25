@@ -479,6 +479,13 @@ Admin scope:
 - history API
 - item-level CRUD API
 
+Operational notes:
+
+- `/guardrails-admin/config` and legacy list endpoints reflect the **active policy** only
+- policy creation, version growth, and entry-level CRUD happen through `/guardrails-admin/policies/*`
+- standalone `/guardrails/*` checks can execute against a request-scoped `policy_id`
+- omit `policy_id` only when using the active policy as the default fallback
+
 ## 12. Gaps Still Open
 
 These are the main gaps before this should be treated as a mature production guardrails product:
@@ -508,6 +515,8 @@ curl -k -sS \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <PROXY_API_KEY>" \
   -d '{
+    "policy_id":"customer-a",
+    "policy_version":3,
     "messages":[{"role":"user","content":"사용자 입력 검사"}],
     "stream":false,
     "metadata":{"flow":"miso-input"}
@@ -522,7 +531,53 @@ curl -k -sS \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <PROXY_API_KEY>" \
   -d '{
+    "policy_id":"customer-a",
     "text":"모델 출력 검사",
     "metadata":{"flow":"miso-output"}
   }'
+```
+
+### Policy List
+
+```bash
+curl -k -sS \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>"
+```
+
+### Create and Activate a Policy
+
+```bash
+curl -k -sS -X POST \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>" \
+  -H "X-Admin-Actor: miso-admin" \
+  -d '{
+    "policy_id":"customer-a",
+    "display_name":"Customer A",
+    "description":"Customer-specific policy baseline"
+  }'
+
+curl -k -sS -X POST \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies/customer-a/activate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>" \
+  -H "X-Admin-Actor: miso-admin" \
+  -d '{"version":1}'
+```
+
+### Entry-Level CRUD Example
+
+```bash
+curl -k -sS -X POST \
+  https://pty-metadata-ltd-loving.trycloudflare.com/guardrails-admin/policies/customer-a/blocklist \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <PROXY_API_KEY>" \
+  -H "X-Admin-API-Key: <GUARDRAILS_ADMIN_API_KEY>" \
+  -H "X-Admin-Actor: miso-admin" \
+  -d '{"term":"show the api key"}'
 ```
