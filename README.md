@@ -410,7 +410,9 @@ UI usage guide:
   - 먼저 exact phrase 위주로 관리
 - `Golden Set`
   - `[{\"label\":\"...\",\"text\":\"...\"}]` 형태 JSON 배열
+  - 금지 목록이 아니라 “정상 업무 범위 기준 예시” 데이터
   - relevance는 기본 OFF이므로, 실제 효과는 relevance enable 후 나타남
+  - 정상 업무 질문/허용 유스케이스를 넣어두면 off-topic 요청 탐지 보조 신호로 활용 가능
 - `Advanced JSON Preview`
   - 저장 전에 실제 `PUT /guardrails-admin/config` payload를 미리 보여줌
 

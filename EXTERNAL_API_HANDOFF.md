@@ -367,7 +367,7 @@ UI 필드 가이드:
 - 다만 정책 선택/버전 전환용 UI는 아직 없음
 | `Prompt Injection Patterns` | regex list | 너무 넓은 패턴은 정상 요청 오탐을 유발 |
 | `Blocklist` | phrase list | exact phrase 위주로 운영, 과도한 일반어 추가 금지 |
-| `Golden Set` | `[{label,text}]` array | relevance 사용 시에만 의미 있음 |
+| `Golden Set` | `[{label,text}]` array | 금지 규칙이 아니라 정상 업무 범위 기준 예시 데이터. relevance 사용 시 입력이 해당 업무 범위와 얼마나 가까운지 판단하는 기준으로 사용 |
 
 ## 3.3) Standalone Guardrails Payload Shapes
 

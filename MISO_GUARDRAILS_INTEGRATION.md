@@ -360,6 +360,38 @@ Current golden set status:
 - current content is empty
 - relevance path is available structurally but is not enabled as an enforcement path
 
+Golden Set role:
+
+- Golden Set is **not** a deny-list. It is a curated set of **expected in-scope examples** for a given policy.
+- If prompt-injection patterns and blocklists answer “what should be blocked”, Golden Set answers “what does normal in-scope traffic look like”.
+- When relevance is enabled, the analyzer compares incoming text against Golden Set examples and scores how close the request is to the intended business scope.
+
+Typical uses:
+
+1. detect requests that are outside the expected business domain
+2. add a relevance signal for off-topic or evasive prompts
+3. differentiate customer- or service-specific policy scope
+
+Example:
+
+- For a helpdesk policy, Golden Set could contain examples such as:
+  - `How do I reset an account password?`
+  - `Explain the login failure recovery procedure.`
+  - `How do I submit an internal IT support request?`
+- Relevance can then estimate whether a new request is close to those intended tasks.
+
+In short:
+
+- `Prompt Injection Patterns`: attack-pattern detection
+- `Blocklist`: explicit forbidden phrases
+- `Golden Set`: reference examples for normal in-scope traffic
+
+Current mock-server note:
+
+- The API and storage model for Golden Set already exist.
+- Relevance is still **OFF by default** and is not used as a strong enforcement path in production behavior yet.
+- In the current rollout, Golden Set is best understood as baseline data for future relevance-based policy expansion.
+
 ## 8. Tested Behavior
 
 The following external checks were verified on the current deployment:
